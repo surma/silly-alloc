@@ -29,7 +29,7 @@ impl<const N: usize, H: Head + Default> Debug for ArenaBumpAllocator<N, H> {
 unsafe impl<const N: usize, H: Head + Default> Sync for ArenaBumpAllocator<N, H> {}
 
 impl<const N: usize, H: Head + Default> ArenaBumpAllocator<N, H> {
-    pub const fn new() -> ArenaBumpAllocator<N, H> {
+    pub const fn new() -> Self {
         ArenaBumpAllocator {
             arena: [0u8; N],
             head: UnsafeCell::new(None),

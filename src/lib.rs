@@ -4,5 +4,8 @@
 #[macro_use]
 extern crate std;
 
-pub mod arena_bump;
 pub(crate) mod head;
+
+pub mod arena_bump;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_page_bump;
