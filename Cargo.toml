@@ -1,5 +1,5 @@
 [package]
-name = "wasm-alloc"
+name = "wasm_alloc"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,3 +9,8 @@ edition = "2021"
 
 [dev-dependencies]
 rand = "0.8.5"
+
+[workspace]
+members = [
+  "e2e"
+]

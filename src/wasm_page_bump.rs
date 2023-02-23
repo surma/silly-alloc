@@ -7,6 +7,7 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     cell::UnsafeCell,
     marker::PhantomData,
+    ptr::null_mut,
 };
 
 use crate::head::{Head, SingleThreadedHead};
@@ -25,7 +26,7 @@ impl MemoryOperations for WasmPageOperations {
     }
 
     fn grow(bytes: usize) {
-        let delta_pages_f = ((bytes as f32) / (PAGE_SIZE as f32));
+        let delta_pages_f = (bytes as f32) / (PAGE_SIZE as f32);
         let mut delta_pages: usize = delta_pages_f as usize;
         if delta_pages_f % 1.0 != 0.0 {
             delta_pages += 1;
@@ -81,16 +82,22 @@ impl<H: Head + Default, M: MemoryOperations> WasmPageBumpAllocator<H, M> {
 
 unsafe impl<H: Head + Default, M: MemoryOperations> GlobalAlloc for WasmPageBumpAllocator<H, M> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.ensure_init();
+        let c = || -> Option<*mut u8> {
+            self.ensure_init();
 
-        let align = layout.align();
-        let size = layout.size();
-        // `ensure_init` make sure we have a head.
-        let head = self.try_as_head_mut().unwrap();
-        let ptr = head.current() as *const u8;
-        let offset = ptr.align_offset(align);
-        head.add(offset + size);
-        ptr.offset(offset.try_into().unwrap()) as *mut u8
+            let align = layout.align();
+            let size = layout.size();
+            // `ensure_init` make sure we have a head.
+            let head = self.try_as_head_mut()?;
+            let ptr = head.current() as *const u8;
+            let offset = ptr.align_offset(align);
+            if ptr.offset((offset + size).try_into().ok()?) as usize >= M::current_size() {
+                M::grow(offset + size);
+            }
+            head.add(offset + size);
+            Some(ptr.offset(offset.try_into().ok()?) as *mut u8)
+        };
+        c().unwrap_or(null_mut())
     }
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}

@@ -61,7 +61,7 @@ impl<const N: usize, H: Head + Default> ArenaBumpAllocator<N, H> {
         if head.is_some() {
             return;
         }
-        drop(head.insert(H::default()));
+        *head = Some(H::default());
     }
 }
 
