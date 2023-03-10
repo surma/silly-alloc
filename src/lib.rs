@@ -6,6 +6,8 @@ extern crate std;
 
 pub(crate) mod head;
 
-pub mod arena_bump;
+pub mod result;
+
+pub mod bump;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_page_bump;
