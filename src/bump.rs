@@ -53,11 +53,14 @@ impl<const N: usize> BumpAllocatorMemory for ArenaMemory<N> {
     }
 }
 
-/// A bump allocator that works on a specified arena of size N.
+/// A bump allocator working on memory `M`, tracking where the remaining
+/// free memory starts using head `H`.
 pub struct BumpAllocator<M: BumpAllocatorMemory, H: Head = SingleThreadedHead> {
     head: UnsafeCell<Option<H>>,
     memory: M,
 }
+
+// TODO: impl Default for WasmPageMemory + SingleSThreadedHead
 
 impl<M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<M, H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -128,7 +131,7 @@ unsafe impl<M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAlloc
                 .memory
                 .ensure_min_size(self.memory.size() + needed_bytes)
             {
-                Err(err) => return null_mut(),
+                Err(_) => return null_mut(),
                 _ => {}
             };
         }
@@ -144,16 +147,36 @@ mod tests {
     use super::*;
     use rand::{thread_rng, Rng};
 
-    const SIZE: usize = 64 * 1024 * 1024;
-
     #[test]
     fn minifuzz() {
+        const SIZE: usize = 64 * 1024 * 1024;
+
         unsafe {
             let mut rng = thread_rng();
             static mut ALLOCATOR: BumpAllocator<ArenaMemory<SIZE>> =
                 BumpAllocator::new(ArenaMemory::<SIZE>::new());
+
+            fn reinit() {
+                use std::alloc::{alloc, Layout};
+                use std::boxed::Box;
+
+                type T = BumpAllocator<ArenaMemory<SIZE>>;
+
+                unsafe {
+                    let layout = Layout::new::<T>();
+                    // This memory is zeroed, and it is intentional
+                    // to test here that zeroed memory is a valid starting
+                    // state for the BumpAllocator.
+                    let ptr = alloc(layout);
+                    let mut next: Box<T> = Box::from_raw(ptr as *mut T);
+                    std::mem::swap(&mut ALLOCATOR, next.as_mut());
+                }
+            }
+
             for _attempts in 1..100 {
-                ALLOCATOR.reset();
+                if _attempts != 1 {
+                    reinit();
+                }
                 for _allocation in 1..10 {
                     let size = rng.gen_range(1..=32);
                     let alignment = 1 << rng.gen_range(1..=5);
