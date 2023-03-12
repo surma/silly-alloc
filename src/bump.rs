@@ -29,7 +29,7 @@ pub trait BumpAllocatorMemory {
         if v > 0 {
             None
         } else {
-            v.try_into().ok()
+            v.abs().try_into().ok()
         }
     }
 }
@@ -69,8 +69,8 @@ impl<'a, M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<'a, 
     }
 }
 
-impl BumpAllocator<'static, &mut [u8], ThreadSafeHead> {
-    pub fn default_threadsafe(arena: &'static mut [u8]) -> Self {
+impl<'a> BumpAllocator<'a, &'a mut [u8], ThreadSafeHead> {
+    pub fn default_threadsafe(arena: &'a mut [u8]) -> Self {
         Self::new(arena, ThreadSafeHead::new())
     }
 }
@@ -126,7 +126,11 @@ unsafe impl<'a, M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpA
         let offset = ptr.align_offset(align);
         let head = self.as_head_mut();
         head.add(offset + size);
-        if let Some(needed_bytes) = self.memory.past_end(head.current() as *const u8) {
+        if let Some(needed_bytes) = self.memory.past_end(
+            self.memory
+                .start()
+                .offset(head.current().try_into().unwrap()),
+        ) {
             match self
                 .memory
                 .ensure_min_size(self.memory.size() + needed_bytes)
@@ -147,6 +151,40 @@ mod tests {
     use super::*;
     use rand::{thread_rng, Rng};
     use std::vec::Vec;
+
+    #[test]
+    fn increment() {
+        let mut arena = [0u8; 1024];
+        {
+            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            unsafe {
+                let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
+                assert!(ptr1 % 4 == 0);
+                let ptr2 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
+                assert!(ptr2 % 4 == 0);
+                assert!(
+                    ptr1 + 4 == ptr2,
+                    "Expected ptr2 to be 4 bytes after pt1, got ptr1=0x{:08x} ptr2=0x{:08x}",
+                    ptr1,
+                    ptr2
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn null() {
+        let mut arena = [0u8; 4];
+        {
+            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            unsafe {
+                let ptr1 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
+                assert!(ptr1 % 4 == 0);
+                let ptr2 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
+                assert!(ptr2 == 0, "Expected ptr2 to be null, got 0x{:08x}", ptr2);
+            }
+        }
+    }
 
     #[test]
     fn minifuzz() {
