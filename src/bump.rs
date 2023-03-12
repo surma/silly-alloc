@@ -2,10 +2,11 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     cell::UnsafeCell,
     fmt::Debug,
+    marker::PhantomData,
     ptr::null_mut,
 };
 
-use crate::result::BumpAllocatorMemoryResult;
+use crate::{head::ThreadSafeHead, result::BumpAllocatorMemoryResult};
 use crate::{
     head::{Head, SingleThreadedHead},
     result::BumpAllocatorMemoryError,
@@ -25,7 +26,7 @@ pub trait BumpAllocatorMemory {
                 .offset(self.size().try_into().ok()?)
                 .offset_from(ptr)
         };
-        if v < 0 {
+        if v > 0 {
             None
         } else {
             v.try_into().ok()
@@ -33,24 +34,12 @@ pub trait BumpAllocatorMemory {
     }
 }
 
-pub struct ArenaMemory<const N: usize> {
-    arena: [u8; N],
-}
-
-unsafe impl<const N: usize> Zeroable for ArenaMemory<N> {}
-
-impl<const N: usize> ArenaMemory<N> {
-    pub const fn new() -> Self {
-        ArenaMemory { arena: [0u8; N] }
-    }
-}
-
-impl<const N: usize> BumpAllocatorMemory for ArenaMemory<N> {
+impl BumpAllocatorMemory for &mut [u8] {
     fn start(&self) -> *const u8 {
-        self.arena.as_slice().as_ptr()
+        self.as_ptr()
     }
     fn size(&self) -> usize {
-        self.arena.len()
+        self.len()
     }
     fn ensure_min_size(&self, _min_size: usize) -> BumpAllocatorMemoryResult<usize> {
         Err(BumpAllocatorMemoryError::GrowthFailed)
@@ -59,14 +48,15 @@ impl<const N: usize> BumpAllocatorMemory for ArenaMemory<N> {
 
 /// A bump allocator working on memory `M`, tracking where the remaining
 /// free memory starts using head `H`.
-pub struct BumpAllocator<M: BumpAllocatorMemory, H: Head = SingleThreadedHead> {
+pub struct BumpAllocator<'a, M: BumpAllocatorMemory = &'a mut [u8], H: Head = SingleThreadedHead> {
     head: UnsafeCell<H>,
     memory: M,
+    lifetime: PhantomData<&'a u8>,
 }
 
 // TODO: impl Default for WasmPageMemory + SingleSThreadedHead
 
-impl<M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<M, H> {
+impl<'a, M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<'a, M, H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let head: i64 = unsafe { self.head.get().as_ref() }
             .map(|h| h.current() as i64 - self.memory.start() as i64)
@@ -79,11 +69,24 @@ impl<M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<M, H> {
     }
 }
 
-impl<M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<M, H> {
+impl BumpAllocator<'static, &mut [u8], ThreadSafeHead> {
+    pub fn default_threadsafe(arena: &'static mut [u8]) -> Self {
+        Self::new(arena, ThreadSafeHead::new())
+    }
+}
+
+impl<'a> BumpAllocator<'a, &'a mut [u8], SingleThreadedHead> {
+    pub fn default_single_threaded(arena: &'a mut [u8]) -> Self {
+        Self::new(arena, SingleThreadedHead::new())
+    }
+}
+
+impl<'a, M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<'a, M, H> {
     pub const fn new(memory: M, head: H) -> Self {
         BumpAllocator {
             memory,
             head: UnsafeCell::new(head),
+            lifetime: PhantomData,
         }
     }
 
@@ -107,12 +110,12 @@ impl<M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<M, H> {
     }
 }
 
-unsafe impl<M: BumpAllocatorMemory + Zeroable, H: Head + Zeroable> Zeroable
-    for BumpAllocator<M, H>
+unsafe impl<'a, M: BumpAllocatorMemory + Zeroable, H: Head + Zeroable> Zeroable
+    for BumpAllocator<'a, M, H>
 {
 }
 
-unsafe impl<M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAllocator<M, H> {
+unsafe impl<'a, M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAllocator<'a, M, H> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let align = layout.align();
         let size = layout.size();
@@ -143,37 +146,29 @@ unsafe impl<M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAlloc
 mod tests {
     use super::*;
     use rand::{thread_rng, Rng};
+    use std::vec::Vec;
 
     #[test]
     fn minifuzz() {
-        const SIZE: usize = 64 * 1024 * 1024;
+        const SIZE: usize = 1024 * 1024;
 
-        unsafe {
-            let mut rng = thread_rng();
-            static mut ALLOCATOR: BumpAllocator<ArenaMemory<SIZE>> =
-                BumpAllocator::new(ArenaMemory::<SIZE>::new(), SingleThreadedHead::new());
+        let mut rng = thread_rng();
 
-            fn reinit() {
-                use crate::on_heap::OnHeap;
-                type T = BumpAllocator<ArenaMemory<SIZE>>;
-
-                let mut next = T::on_heap();
-                unsafe {
-                    std::mem::swap(&mut ALLOCATOR, next.as_mut());
+        for _attempts in 1..100 {
+            let mut arena = Vec::with_capacity(SIZE);
+            arena.resize(SIZE, 0);
+            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            let mut last_ptr: Option<usize> = None;
+            for _allocation in 1..10 {
+                let size = rng.gen_range(1..=32);
+                let alignment = 1 << rng.gen_range(1..=5);
+                let layout = Layout::from_size_align(size, alignment).unwrap();
+                let ptr = unsafe { allocator.alloc(layout) as usize };
+                if let Some(last_ptr) = last_ptr {
+                    assert!(ptr > last_ptr, "Pointer didn’t bump")
                 }
-            }
-
-            for _attempts in 1..100 {
-                if _attempts != 1 {
-                    reinit();
-                }
-                for _allocation in 1..10 {
-                    let size = rng.gen_range(1..=32);
-                    let alignment = 1 << rng.gen_range(1..=5);
-                    let layout = Layout::from_size_align(size, alignment).unwrap();
-                    let ptr = ALLOCATOR.alloc(layout) as usize;
-                    assert!(ptr % alignment == 0);
-                }
+                drop(last_ptr.insert(ptr));
+                assert!(ptr % alignment == 0);
             }
         }
     }
