@@ -23,13 +23,14 @@ pub trait BumpAllocatorMemory {
         // memory sizes that overflow isize.
         let v = unsafe {
             self.start()
-                .offset(self.size().try_into().ok()?)
+                .offset(self.size().try_into().unwrap())
                 .offset_from(ptr)
         };
         if v > 0 {
             None
         } else {
-            v.abs().try_into().ok()
+            // Panic, if we can’t convernt the `isize` to an `uszie`.
+            Some(v.abs().try_into().unwrap())
         }
     }
 }
@@ -59,8 +60,8 @@ pub struct BumpAllocator<'a, M: BumpAllocatorMemory = &'a mut [u8], H: Head = Si
 impl<'a, M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<'a, M, H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let head: i64 = unsafe { self.head.get().as_ref() }
-            .map(|h| h.current() as i64 - self.memory.start() as i64)
-            .unwrap_or(-1);
+            .unwrap()
+            .num_bytes_used() as i64;
         let size = self.memory.size();
         f.debug_struct("BumpAllocator")
             .field("head", &head)
@@ -97,7 +98,7 @@ impl<'a, M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<'a, M, H> {
     }
 
     fn get_head_ptr(&self) -> Option<*const u8> {
-        let offset: isize = self.as_head_mut().current().try_into().ok()?;
+        let offset: isize = self.as_head_mut().num_bytes_used().try_into().ok()?;
         unsafe { Some(self.memory.start().offset(offset)) }
     }
 
@@ -125,12 +126,12 @@ unsafe impl<'a, M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpA
         };
         let offset = ptr.align_offset(align);
         let head = self.as_head_mut();
-        head.add(offset + size);
-        if let Some(needed_bytes) = self.memory.past_end(
-            self.memory
-                .start()
-                .offset(head.current().try_into().unwrap()),
-        ) {
+        let last_byte_of_new_allocation = self
+            .memory
+            .start()
+            .offset((head.num_bytes_used() + offset + size).try_into().unwrap())
+            .offset(-1);
+        if let Some(needed_bytes) = self.memory.past_end(last_byte_of_new_allocation) {
             match self
                 .memory
                 .ensure_min_size(self.memory.size() + needed_bytes)
@@ -140,6 +141,7 @@ unsafe impl<'a, M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpA
             };
         }
 
+        head.bump(offset + size);
         ptr.offset(offset.try_into().unwrap()) as *mut u8
     }
 
@@ -179,9 +181,23 @@ mod tests {
             let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
-                assert!(ptr1 % 4 == 0);
+                assert_eq!(ptr1 % 4, 0);
                 let ptr2 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
-                assert!(ptr2 == 0, "Expected ptr2 to be null, got 0x{:08x}", ptr2);
+                assert_eq!(ptr2, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn use_last_byte() {
+        let mut arena = [0u8; 4];
+        {
+            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            unsafe {
+                let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
+                assert_eq!(ptr1 % 4, 0);
+                let ptr2 = allocator.alloc(Layout::from_size_align(1, 1).unwrap()) as usize;
+                assert_eq!(ptr2, arena.as_ptr().offset(3) as usize);
             }
         }
     }
@@ -206,7 +222,7 @@ mod tests {
                     assert!(ptr > last_ptr, "Pointer didn’t bump")
                 }
                 drop(last_ptr.insert(ptr));
-                assert!(ptr % alignment == 0);
+                assert_eq!(ptr % alignment, 0);
             }
         }
     }

@@ -3,9 +3,11 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+/// The head is the pointer that gets bumped in a bump allocator.
+/// It tracks of how many bytes have been marked as in-use.
 pub trait Head {
-    fn current(&self) -> usize;
-    fn add(&self, inc: usize);
+    fn num_bytes_used(&self) -> usize;
+    fn bump(&self, inc: usize);
     fn set(&self, v: usize);
 }
 
@@ -22,11 +24,11 @@ impl ThreadSafeHead {
 }
 
 impl Head for ThreadSafeHead {
-    fn current(&self) -> usize {
+    fn num_bytes_used(&self) -> usize {
         self.0.load(Ordering::SeqCst)
     }
 
-    fn add(&self, inc: usize) {
+    fn bump(&self, inc: usize) {
         self.0.fetch_add(inc, Ordering::SeqCst);
     }
 
@@ -53,13 +55,13 @@ impl SingleThreadedHead {
 }
 
 impl Head for SingleThreadedHead {
-    fn current(&self) -> usize {
+    fn num_bytes_used(&self) -> usize {
         unsafe { *self.0.get() }
     }
 
-    fn add(&self, inc: usize) {
+    fn bump(&self, inc: usize) {
         unsafe {
-            *self.0.get() = self.current() + inc;
+            *self.0.get() = self.num_bytes_used() + inc;
         }
     }
 
