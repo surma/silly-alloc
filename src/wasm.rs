@@ -11,11 +11,11 @@ pub struct WasmPageMemory;
 const PAGE_SIZE: usize = 64 * 1024;
 impl BumpAllocatorMemory for WasmPageMemory {
     fn start(&self) -> *const u8 {
-        &__heap_base
+        unsafe { &__heap_base }
     }
 
     fn size(&self) -> usize {
-        core::arch::wasm32::memory_size(0) * PAGE_SIZE - self.memory.start() as usize
+        core::arch::wasm32::memory_size(0) * PAGE_SIZE - self.start() as usize
     }
 
     fn ensure_min_size(&self, min_size: usize) -> BumpAllocatorMemoryResult<usize> {

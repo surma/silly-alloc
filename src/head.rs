@@ -11,11 +11,7 @@ pub trait Head {
     fn set(&self, v: usize);
 }
 
-use bytemuck::Zeroable;
-
 pub struct ThreadSafeHead(AtomicUsize);
-
-unsafe impl Zeroable for ThreadSafeHead {}
 
 impl ThreadSafeHead {
     pub const fn new() -> Self {
@@ -45,7 +41,6 @@ impl Default for ThreadSafeHead {
 
 pub struct SingleThreadedHead(UnsafeCell<usize>);
 
-unsafe impl Zeroable for SingleThreadedHead {}
 unsafe impl Sync for SingleThreadedHead {}
 
 impl SingleThreadedHead {

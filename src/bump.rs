@@ -12,8 +12,6 @@ use crate::{
     result::BumpAllocatorMemoryError,
 };
 
-use bytemuck::Zeroable;
-
 pub trait BumpAllocatorMemory {
     fn start(&self) -> *const u8;
     fn size(&self) -> usize;
@@ -111,10 +109,7 @@ impl<'a, M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<'a, M, H> {
     }
 }
 
-unsafe impl<'a, M: BumpAllocatorMemory + Zeroable, H: Head + Zeroable> Zeroable
-    for BumpAllocator<'a, M, H>
-{
-}
+unsafe impl<'a, M: BumpAllocatorMemory, H: Head> Sync for BumpAllocator<'a, M, H> {}
 
 unsafe impl<'a, M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAllocator<'a, M, H> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
