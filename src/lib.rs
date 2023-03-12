@@ -6,6 +6,7 @@ extern crate std;
 
 pub(crate) mod head;
 
+pub mod on_heap;
 pub mod result;
 
 pub mod bump;

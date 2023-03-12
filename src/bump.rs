@@ -11,6 +11,8 @@ use crate::{
     result::BumpAllocatorMemoryError,
 };
 
+use bytemuck::Zeroable;
+
 pub trait BumpAllocatorMemory {
     fn start(&self) -> *const u8;
     fn size(&self) -> usize;
@@ -35,6 +37,8 @@ pub struct ArenaMemory<const N: usize> {
     arena: [u8; N],
 }
 
+unsafe impl<const N: usize> Zeroable for ArenaMemory<N> {}
+
 impl<const N: usize> ArenaMemory<N> {
     pub const fn new() -> Self {
         ArenaMemory { arena: [0u8; N] }
@@ -56,7 +60,7 @@ impl<const N: usize> BumpAllocatorMemory for ArenaMemory<N> {
 /// A bump allocator working on memory `M`, tracking where the remaining
 /// free memory starts using head `H`.
 pub struct BumpAllocator<M: BumpAllocatorMemory, H: Head = SingleThreadedHead> {
-    head: UnsafeCell<Option<H>>,
+    head: UnsafeCell<H>,
     memory: M,
 }
 
@@ -64,8 +68,7 @@ pub struct BumpAllocator<M: BumpAllocatorMemory, H: Head = SingleThreadedHead> {
 
 impl<M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<M, H> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let head: i64 = unsafe { &*self.head.get() }
-            .as_ref()
+        let head: i64 = unsafe { self.head.get().as_ref() }
             .map(|h| h.current() as i64 - self.memory.start() as i64)
             .unwrap_or(-1);
         let size = self.memory.size();
@@ -77,10 +80,10 @@ impl<M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<M, H> {
 }
 
 impl<M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<M, H> {
-    pub const fn new(memory: M) -> Self {
+    pub const fn new(memory: M, head: H) -> Self {
         BumpAllocator {
             memory,
-            head: UnsafeCell::new(None),
+            head: UnsafeCell::new(head),
         }
     }
 
@@ -96,27 +99,21 @@ impl<M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<M, H> {
     }
 
     fn try_as_head_mut(&self) -> Option<&mut H> {
-        unsafe { &mut *self.head.get() }.as_mut()
+        unsafe { self.head.get().as_mut() }
     }
 
     fn as_head_mut(&self) -> &mut H {
         self.try_as_head_mut().unwrap()
     }
+}
 
-    unsafe fn ensure_init(&self) {
-        let head = &mut *self.head.get();
-        if head.is_some() {
-            return;
-        }
-        *head = Some(H::default());
-        self.reset()
-    }
+unsafe impl<M: BumpAllocatorMemory + Zeroable, H: Head + Zeroable> Zeroable
+    for BumpAllocator<M, H>
+{
 }
 
 unsafe impl<M: BumpAllocatorMemory, H: Head + Default> GlobalAlloc for BumpAllocator<M, H> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.ensure_init();
-
         let align = layout.align();
         let size = layout.size();
         let ptr = match self.get_head_ptr() {
@@ -154,21 +151,14 @@ mod tests {
         unsafe {
             let mut rng = thread_rng();
             static mut ALLOCATOR: BumpAllocator<ArenaMemory<SIZE>> =
-                BumpAllocator::new(ArenaMemory::<SIZE>::new());
+                BumpAllocator::new(ArenaMemory::<SIZE>::new(), SingleThreadedHead::new());
 
             fn reinit() {
-                use std::alloc::{alloc, Layout};
-                use std::boxed::Box;
-
+                use crate::on_heap::OnHeap;
                 type T = BumpAllocator<ArenaMemory<SIZE>>;
 
+                let mut next = T::on_heap();
                 unsafe {
-                    let layout = Layout::new::<T>();
-                    // This memory is zeroed, and it is intentional
-                    // to test here that zeroed memory is a valid starting
-                    // state for the BumpAllocator.
-                    let ptr = alloc(layout);
-                    let mut next: Box<T> = Box::from_raw(ptr as *mut T);
                     std::mem::swap(&mut ALLOCATOR, next.as_mut());
                 }
             }

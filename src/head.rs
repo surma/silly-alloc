@@ -9,9 +9,19 @@ pub trait Head {
     fn set(&self, v: usize);
 }
 
-pub struct ThreadedSafeHead(AtomicUsize);
+use bytemuck::Zeroable;
 
-impl Head for ThreadedSafeHead {
+pub struct ThreadSafeHead(AtomicUsize);
+
+unsafe impl Zeroable for ThreadSafeHead {}
+
+impl ThreadSafeHead {
+    pub const fn new() -> Self {
+        ThreadSafeHead(AtomicUsize::new(0))
+    }
+}
+
+impl Head for ThreadSafeHead {
     fn current(&self) -> usize {
         self.0.load(Ordering::SeqCst)
     }
@@ -25,15 +35,22 @@ impl Head for ThreadedSafeHead {
     }
 }
 
-impl Default for ThreadedSafeHead {
+impl Default for ThreadSafeHead {
     fn default() -> Self {
-        ThreadedSafeHead(AtomicUsize::new(0))
+        ThreadSafeHead(AtomicUsize::new(0))
     }
 }
 
 pub struct SingleThreadedHead(UnsafeCell<usize>);
 
+unsafe impl Zeroable for SingleThreadedHead {}
 unsafe impl Sync for SingleThreadedHead {}
+
+impl SingleThreadedHead {
+    pub const fn new() -> Self {
+        SingleThreadedHead(UnsafeCell::new(0))
+    }
+}
 
 impl Head for SingleThreadedHead {
     fn current(&self) -> usize {
