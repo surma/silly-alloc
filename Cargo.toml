@@ -10,5 +10,6 @@ wasmtime = "6.0.1"
 
 [workspace]
 members = [
-  "e2e"
+  "e2e",
+  "wasm-alloc-macros"
 ]

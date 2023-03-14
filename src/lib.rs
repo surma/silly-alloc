@@ -7,6 +7,8 @@ pub mod bump;
 pub use bump::BumpAllocator;
 pub use bump::BumpAllocatorMemory;
 
+pub mod bucket;
+
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 #[cfg(target_arch = "wasm32")]

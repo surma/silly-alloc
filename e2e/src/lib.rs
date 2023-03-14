@@ -11,7 +11,7 @@ use alloc::boxed::Box;
 
 #[global_allocator]
 static ALLOCATOR: BumpAllocator<WasmPageMemory, SingleThreadedHead> =
-    BumpAllocator::new(WasmPageMemory {}, SingleThreadedHead::new());
+    BumpAllocator::new(WasmPageMemory::new(), SingleThreadedHead::new());
 
 #[no_mangle]
 extern "C" fn test_page_growth() {

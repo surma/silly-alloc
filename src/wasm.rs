@@ -8,6 +8,12 @@ use crate::{bump::BumpAllocatorMemory, result::BumpAllocatorMemoryError};
 
 pub struct WasmPageMemory;
 
+impl WasmPageMemory {
+    pub const fn new() -> Self {
+        WasmPageMemory {}
+    }
+}
+
 const PAGE_SIZE: usize = 64 * 1024;
 impl BumpAllocatorMemory for WasmPageMemory {
     fn start(&self) -> *const u8 {
