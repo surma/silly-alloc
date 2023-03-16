@@ -127,7 +127,7 @@ impl<S: Slot> Segment<S> {
 
 impl<S: Slot> Default for Segment<S> {
     fn default() -> Self {
-        Segment::<S>::default()
+        Segment::<S>::new()
     }
 }
 
@@ -136,6 +136,12 @@ macro_rules! align_type {
         #[derive(Debug)]
         #[repr(C, align($n))]
         pub struct $name<const N: usize>([u8; N]);
+        impl<const N: usize> $name<N> {
+            pub const fn new() -> Self {
+                $name([0u8; N])
+            }
+        }
+
         impl<const N: usize> Slot for $name<N> {
             fn get(&self) -> *const u8 {
                 self.0.as_ptr()
@@ -161,7 +167,7 @@ pub struct Bucket<S: Slot, const N: usize> {
 }
 
 impl<S: Slot, const N: usize> Bucket<S, N> {
-    const fn default() -> Self {
+    pub const fn new() -> Self {
         Bucket {
             segments: unsafe { MaybeUninit::uninit().assume_init() },
         }
@@ -212,7 +218,7 @@ impl<S: Slot, const N: usize> Bucket<S, N> {
 
 impl<S: Slot, const N: usize> Default for Bucket<S, N> {
     fn default() -> Self {
-        Bucket::<S, N>::default()
+        Bucket::<S, N>::new()
     }
 }
 
@@ -226,9 +232,15 @@ mod test {
 
     use wasm_alloc_macros::bucket_allocator;
 
+    bucket_allocator!(MyBucketAllocator, {
+        Bucket {slot_size: 2, align: 2, num_slots: 32},
+        Bucket {slot_size: 4, align: 4, num_slots: 32},
+        Bucket {slot_size: 8, align: 8, num_slots: 32}
+    });
+
     #[test]
     fn next_in_bucket() -> Result<()> {
-        let b = BucketAllocator::default();
+        let b = MyBucketAllocator::new();
         unsafe {
             let ptr1 = b.alloc(Layout::from_size_align(2, 1)?);
             let ptr2 = b.alloc(Layout::from_size_align(2, 1)?);
@@ -241,7 +253,7 @@ mod test {
 
     #[test]
     fn reuse() -> Result<()> {
-        let b = BucketAllocator::default();
+        let b = MyBucketAllocator::new();
         unsafe {
             let layout = Layout::from_size_align(2, 1)?;
             let ptr1 = b.alloc(layout.clone());
@@ -257,29 +269,8 @@ mod test {
     }
 
     #[test]
-    fn via_macro() -> Result<()> {
-        bucket_allocator! {
-            Bucket {slot_size: 4, num_slots: 30},
-            Bucket {slot_size: 8, align: 1, num_slots: 30},
-        };
-        unsafe {
-            assert_eq!(
-                BucketAllocator::default()
-                    .0
-                    .get()
-                    .as_ref()
-                    .unwrap()
-                    .segments
-                    .len(),
-                30
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
     fn bucket_overflow() -> Result<()> {
-        let b = BucketAllocator::default();
+        let b = MyBucketAllocator::new();
         unsafe {
             let layout = Layout::from_size_align(2, 1)?;
             // Fill 2 byte bucket
@@ -290,57 +281,6 @@ mod test {
             let ptr2 = b.alloc(layout.clone());
             assert_eq!(ptr1.offset(4), ptr2);
         }
-        dbg!(b);
         Ok(())
-    }
-
-    #[derive(Default)]
-    struct BucketAllocator(
-        UnsafeCell<Bucket<SlotWithAlign2<2>, 1>>,
-        UnsafeCell<Bucket<SlotWithAlign4<4>, 1>>,
-        UnsafeCell<Bucket<SlotWithAlign8<8>, 1>>,
-        // TODO: Arbitrary-size overflow
-    );
-
-    impl Debug for BucketAllocator {
-        fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-            f.debug_struct("BucketAllocator")
-                .field("2", unsafe { &self.0.get().as_ref().unwrap() })
-                .field("4", unsafe { &self.1.get().as_ref().unwrap() })
-                .field("8", unsafe { &self.2.get().as_ref().unwrap() })
-                .finish()
-        }
-    }
-
-    unsafe impl GlobalAlloc for BucketAllocator {
-        unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-            // FIXME: Respect align
-            let size = layout.size();
-            if size <= 2 {
-                if let Some(ptr) = self.0.get().as_mut().unwrap().take_first_available_slot() {
-                    return ptr as *mut u8;
-                }
-            }
-            if size <= 4 {
-                if let Some(ptr) = self.1.get().as_mut().unwrap().take_first_available_slot() {
-                    return ptr as *mut u8;
-                }
-            }
-            if size <= 8 {
-                if let Some(ptr) = self.2.get().as_mut().unwrap().take_first_available_slot() {
-                    return ptr as *mut u8;
-                }
-            }
-            core::ptr::null_mut()
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            // FIXME: Respect align
-            if let Some(bucket) = self.0.get().as_mut() {
-                if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
-                    bucket.unset_slot(slot_idx);
-                }
-            }
-        }
     }
 }
