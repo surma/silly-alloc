@@ -224,6 +224,8 @@ mod test {
 
     use anyhow::Result;
 
+    use wasm_alloc_macros::bucket_allocator;
+
     #[test]
     fn next_in_bucket() -> Result<()> {
         let b = BucketAllocator::default();
@@ -250,6 +252,27 @@ mod test {
             b.dealloc(ptr2, layout);
             let ptr4 = b.alloc(layout.clone());
             assert_eq!(ptr2, ptr4);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn via_macro() -> Result<()> {
+        bucket_allocator! {
+            Bucket {slot_size: 4, num_slots: 30},
+            Bucket {slot_size: 8, align: 1, num_slots: 30},
+        };
+        unsafe {
+            assert_eq!(
+                BucketAllocator::default()
+                    .0
+                    .get()
+                    .as_ref()
+                    .unwrap()
+                    .segments
+                    .len(),
+                30
+            );
         }
         Ok(())
     }
