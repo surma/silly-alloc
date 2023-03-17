@@ -91,6 +91,16 @@ impl Parse for BucketDescriptor {
 }
 
 impl BucketDescriptor {
+    fn num_segments(&self) -> usize {
+        ((self
+            .num_slots
+            .try_to_int_literal()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap() as f32)
+            / 32.0)
+            .ceil() as usize
+    }
     fn as_init_values(&self) -> TokenStream {
         let BucketDescriptor {
             num_slots,
@@ -113,12 +123,13 @@ impl BucketDescriptor {
             slot_size,
             align,
         } = self;
+        let num_segments = self.num_segments();
         let slot_type_ident = Ident::new(
             &format!("SlotWithAlign{}", align.try_to_int_literal().unwrap()),
             align.__span(),
         );
         quote! {
-            UnsafeCell<Bucket<#slot_type_ident<#slot_size>, #num_slots>>
+            UnsafeCell<Bucket<#slot_type_ident<#slot_size>, #num_segments>>
         }
         .into()
     }
