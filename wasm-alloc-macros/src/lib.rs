@@ -6,8 +6,8 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     token::Comma,
-    Error, Expr, ExprBlock, ExprLit, ExprStruct, FieldValue, Ident, Lit, LitInt, Member, Pat,
-    Result, Token,
+    Error, Expr, ExprBlock, ExprLit, ExprStruct, FieldValue, Ident, Index, Lit, LitInt, Member,
+    Pat, Result, Token,
 };
 
 mod cast_helpers;
@@ -130,8 +130,9 @@ impl BucketDescriptor {
             align,
         } = self;
         let size_str = slot_size.try_to_int_literal().unwrap();
+        let idx_key = Index::from(idx);
         quote! {
-            .field(#size_str, unsafe { &self.#idx.get().as_ref().unwrap() })
+            .field(#size_str, unsafe { &self.#idx_key.get().as_ref().unwrap() })
         }
         .into()
     }
@@ -147,9 +148,10 @@ impl BucketDescriptor {
             .unwrap()
             .parse::<usize>()
             .unwrap();
+        let idx_key = Index::from(idx);
         quote! {
             if size <= #size {
-                if let Some(ptr) = self.#idx.get().as_mut().unwrap().take_first_available_slot() {
+                if let Some(ptr) = self.#idx_key.get().as_mut().unwrap().take_first_available_slot() {
                     return ptr as *mut u8;
                 }
             }
@@ -168,8 +170,9 @@ impl BucketDescriptor {
             .unwrap()
             .parse::<usize>()
             .unwrap();
+        let idx_key = Index::from(idx);
         quote! {
-            if let Some(bucket) = self.#idx.get().as_mut() {
+            if let Some(bucket) = self.#idx_key.get().as_mut() {
                 if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
                     bucket.unset_slot(slot_idx);
                 }
