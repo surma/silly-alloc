@@ -29,5 +29,5 @@ extern "C" fn test_page_growth() {
 
 #[panic_handler]
 fn panic_handler(_: &PanicInfo) -> ! {
-    core::arch::wasm32::unreachable();
+    core::arch::wasm32::unreachable()
 }

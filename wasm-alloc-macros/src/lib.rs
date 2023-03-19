@@ -1,13 +1,8 @@
-use proc_macro2::{Group, Span, TokenStream, TokenTree};
-use quote::{format_ident, quote, spanned::Spanned, ToTokens};
+use proc_macro2::TokenStream;
+use quote::{quote, spanned::Spanned};
 use syn::{
-    braced,
     parse::{Parse, ParseStream},
-    parse_macro_input,
-    punctuated::Punctuated,
-    token::Comma,
-    Error, Expr, ExprBlock, ExprLit, ExprStruct, FieldValue, Ident, Index, Lit, LitInt, Member,
-    Pat, Result, Token,
+    *,
 };
 
 mod cast_helpers;
@@ -20,72 +15,97 @@ struct BucketAllocatorDescriptor {
 
 impl Parse for BucketAllocatorDescriptor {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
-        let name = Ident::parse(input)?;
-        Comma::parse(input)?;
-        let fields;
-        braced!(fields in input);
-        let items = Punctuated::<BucketDescriptor, Token![,]>::parse_terminated(&fields)?;
-        Ok(BucketAllocatorDescriptor {
-            name,
-            buckets: items.into_iter().collect(),
-        })
+        let st: ItemStruct = input.parse()?;
+        let name = st.ident;
+        let buckets: Vec<Result<BucketDescriptor>> =
+            st.fields.iter().map(|field| field.try_into()).collect();
+        let buckets: Vec<BucketDescriptor> = Result::from_iter(buckets)?;
+        Ok(BucketAllocatorDescriptor { name, buckets })
     }
 }
 
 struct BucketDescriptor {
+    name: Ident,
     slot_size: Expr,
     align: Expr,
     num_slots: Expr,
 }
 
-fn path_references_item(p: &syn::Path, item: &str) -> bool {
-    p.segments
-        .iter()
-        .last()
-        .unwrap()
-        .to_token_stream()
-        .to_string()
-        .as_str()
-        == item
-}
+impl TryFrom<&Field> for BucketDescriptor {
+    type Error = syn::Error;
+    fn try_from(field: &Field) -> Result<Self> {
+        let name = field
+            .ident
+            .as_ref()
+            .ok_or(Error::new(field.__span(), "Struct field without a name."))?;
 
-fn find_field<'a>(s: &'a ExprStruct, name: &str) -> Option<&'a FieldValue> {
-    s.fields.iter().find(|field| {
-        let Member::Named(field_name) = &field.member else {return false;};
-        field_name.to_string().as_str() == name
-    })
-}
+        let Type::Path(path_type) = &field.ty else {return Err(Error::new(field.__span(), "Struct field’s type must have the simple type name 'Bucket'."))};
+        if path_type.path.segments.len() != 1 {
+            return Err(Error::new(
+                path_type.__span(),
+                "Struct field’s type must have the simple type name 'Bucket'.",
+            ));
+        }
+        let path_seg = path_type.path.segments.iter().nth(0).unwrap();
+        if path_seg.ident.to_string() != "Bucket" {
+            return Err(Error::new(
+                path_seg.__span(),
+                "Struct field’s type must have the simple type name 'Bucket'.",
+            ));
+        }
 
-impl Parse for BucketDescriptor {
-    fn parse(input: ParseStream<'_>) -> Result<Self> {
-        let bucket_desc = ExprStruct::parse(input)?;
-        assert!(
-            path_references_item(&bucket_desc.path, "Bucket"),
-            "Items in a BucketAllocator must be buckets."
-        );
-
-        let slot_size = find_field(&bucket_desc, "slot_size")
-            .ok_or_else(|| Error::new(bucket_desc.__span(), "slot_size is mandatory"))?
-            .expr
-            .clone();
-        let num_slots = find_field(&bucket_desc, "num_slots")
-            .ok_or_else(|| Error::new(bucket_desc.__span(), "num_slots is mandatory"))?
-            .expr
-            .clone();
-        let align = find_field(&bucket_desc, "align")
-            .map(|field| &field.expr)
-            .cloned()
-            .unwrap_or_else(|| {
-                Expr::Lit(ExprLit {
-                    attrs: vec![],
-                    lit: Lit::Int(LitInt::new("1usize", bucket_desc.__span())),
-                })
-            });
+        let mut slot_size: Option<Expr> = None;
+        let mut num_slots: Option<Expr> = None;
+        let mut align: Option<Expr> = None;
+        let PathArguments::AngleBracketed(generics) = &path_seg.arguments else { return Err(Error::new(path_seg.__span(), "Bucket is missing generic arguments"))};
+        for generic_arg in &generics.args {
+            let GenericArgument::Type(Type::Path(param_type))= generic_arg else {return Err(Error::new( generic_arg.__span(), "Bucket can only take type arguments."))};
+            if param_type.path.segments.len() != 1 {
+                return Err(Error::new(
+                    param_type.__span(),
+                    "Invalid value for a Bucket property",
+                ));
+            }
+            let segment = param_type.path.segments.iter().nth(0).unwrap();
+            let param_name = &segment.ident;
+            let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else {
+            return Err(Error::new(segment.__span(), "Bucket parameters are passed as generic arguments."))
+            };
+            if param_generic_args.args.len() != 1 {
+                return Err(Error::new(
+                    param_generic_args.__span(),
+                    "Bucket parameters take exactly one generic argument.",
+                ));
+            }
+            let param_generic_arg = param_generic_args.args.iter().nth(0).unwrap();
+            let GenericArgument::Const(expr) = param_generic_arg else {
+            return Err(Error::new(param_generic_arg.__span(), "Bucket parameters must be a const expr."))
+            };
+            match param_name.to_string().as_str() {
+                "SlotSize" => slot_size = Some(expr.clone()),
+                "NumSlots" => num_slots = Some(expr.clone()),
+                "Align" => align = Some(expr.clone()),
+                _ => {
+                    return Err(Error::new(
+                        name.__span(),
+                        format!("Unknown bucket parameter: {}", param_name.to_string()),
+                    ))
+                }
+            };
+        }
 
         Ok(BucketDescriptor {
-            slot_size,
-            align,
-            num_slots,
+            name: name.clone(),
+            slot_size: slot_size
+                .ok_or(Error::new(generics.__span(), "SlotSlize was not specified"))?,
+            num_slots: num_slots
+                .ok_or(Error::new(generics.__span(), "NumSlots was not specified"))?,
+            align: align.unwrap_or_else(|| {
+                Expr::Lit(ExprLit {
+                    attrs: vec![],
+                    lit: Lit::Int(LitInt::new("1usize", generics.__span())),
+                })
+            }),
         })
     }
 }
@@ -101,27 +121,17 @@ impl BucketDescriptor {
             / 32.0)
             .ceil() as usize
     }
+
     fn as_init_values(&self) -> TokenStream {
-        let BucketDescriptor {
-            num_slots,
-            slot_size,
-            align,
-        } = self;
-        let slot_type_ident = Ident::new(
-            &format!("SlotWithAlign{}", align.try_to_int_literal().unwrap()),
-            align.__span(),
-        );
         quote! {
-            UnsafeCell::new(Bucket::new())
+            ::core::cell::UnsafeCell::new(BucketImpl::new())
         }
         .into()
     }
 
     fn as_struct_fields(&self) -> TokenStream {
         let BucketDescriptor {
-            num_slots,
-            slot_size,
-            align,
+            slot_size, align, ..
         } = self;
         let num_segments = self.num_segments();
         let slot_type_ident = Ident::new(
@@ -129,31 +139,24 @@ impl BucketDescriptor {
             align.__span(),
         );
         quote! {
-            UnsafeCell<Bucket<#slot_type_ident<#slot_size>, #num_segments>>
+            ::core::cell::UnsafeCell<BucketImpl<#slot_type_ident<#slot_size>, #num_segments>>
         }
         .into()
     }
 
     fn as_debug_print_stmts(&self, idx: usize) -> TokenStream {
-        let BucketDescriptor {
-            num_slots,
-            slot_size,
-            align,
-        } = self;
-        let size_str = slot_size.try_to_int_literal().unwrap();
+        let BucketDescriptor { name, .. } = self;
+
         let idx_key = Index::from(idx);
+        let name = name.to_string();
         quote! {
-            .field(#size_str, unsafe { &self.#idx_key.get().as_ref().unwrap() })
+            .field(#name, unsafe { &self.#idx_key.get().as_ref().unwrap() })
         }
         .into()
     }
 
     fn as_alloc_bucket_selectors(&self, idx: usize) -> TokenStream {
-        let BucketDescriptor {
-            num_slots,
-            slot_size,
-            align,
-        } = self;
+        let BucketDescriptor { slot_size, .. } = self;
         let size = slot_size
             .try_to_int_literal()
             .unwrap()
@@ -171,16 +174,6 @@ impl BucketDescriptor {
     }
 
     fn as_dealloc_bucket_selectors(&self, idx: usize) -> TokenStream {
-        let BucketDescriptor {
-            num_slots,
-            slot_size,
-            align,
-        } = self;
-        let size = slot_size
-            .try_to_int_literal()
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
         let idx_key = Index::from(idx);
         quote! {
             if let Some(bucket) = self.#idx_key.get().as_mut() {
@@ -193,11 +186,14 @@ impl BucketDescriptor {
     }
 }
 
-#[proc_macro]
-pub fn bucket_allocator(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_attribute]
+pub fn bucket_allocator(
+    _attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let BucketAllocatorDescriptor { name, buckets } = parse_macro_input!(input);
     // TODO: Sort buckets?
-    let name_str = stringify!(name);
+    let name_str = name.to_string();
     let bucket_field_decls: Vec<TokenStream> = buckets
         .iter()
         .map(|bucket| bucket.as_struct_fields())
@@ -248,7 +244,7 @@ pub fn bucket_allocator(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 }
             }
 
-            unsafe impl GlobalAlloc for #name {
+            unsafe impl ::core::alloc::GlobalAlloc for #name {
                 unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
                     // FIXME: Respect align
                     let size = layout.size();

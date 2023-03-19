@@ -1,8 +1,6 @@
 use core::{
-    alloc::GlobalAlloc,
-    cell::UnsafeCell,
-    fmt::Write,
     fmt::{Debug, Formatter},
+    marker::PhantomData,
     mem::{size_of, MaybeUninit},
 };
 
@@ -162,13 +160,13 @@ align_type!(SlotWithAlign16, 16);
 align_type!(SlotWithAlign32, 32);
 
 #[derive(Debug)]
-pub struct Bucket<S: Slot, const N: usize> {
+pub struct BucketImpl<S: Slot, const N: usize> {
     segments: [Segment<S>; N],
 }
 
-impl<S: Slot, const N: usize> Bucket<S, N> {
+impl<S: Slot, const N: usize> BucketImpl<S, N> {
     pub const fn new() -> Self {
-        Bucket {
+        BucketImpl {
             segments: unsafe { MaybeUninit::uninit().assume_init() },
         }
     }
@@ -216,9 +214,15 @@ impl<S: Slot, const N: usize> Bucket<S, N> {
     }
 }
 
-impl<S: Slot, const N: usize> Default for Bucket<S, N> {
+pub struct SlotSize<const N: usize>;
+pub struct NumSlots<const N: usize>;
+pub struct Align<const N: usize>;
+
+pub struct Bucket<S, N, A = Align<1>>(PhantomData<S>, PhantomData<N>, PhantomData<A>);
+
+impl<S: Slot, const N: usize> Default for BucketImpl<S, N> {
     fn default() -> Self {
-        Bucket::<S, N>::new()
+        BucketImpl::<S, N>::new()
     }
 }
 
@@ -226,17 +230,18 @@ impl<S: Slot, const N: usize> Default for Bucket<S, N> {
 mod test {
     use super::*;
 
-    use core::alloc::Layout;
+    use core::alloc::{GlobalAlloc, Layout};
 
     use anyhow::Result;
 
     use wasm_alloc_macros::bucket_allocator;
 
-    bucket_allocator!(MyBucketAllocator, {
-        Bucket {slot_size: 2, align: 2, num_slots: 32},
-        Bucket {slot_size: 4, align: 4, num_slots: 32},
-        Bucket {slot_size: 8, align: 8, num_slots: 32}
-    });
+    #[bucket_allocator]
+    struct MyBucketAllocator {
+        vec2: Bucket<SlotSize<2>, NumSlots<32>, Align<2>>,
+        vec4: Bucket<SlotSize<4>, NumSlots<32>, Align<4>>,
+        vec8: Bucket<SlotSize<8>, NumSlots<32>, Align<8>>,
+    }
 
     #[test]
     fn next_in_bucket() -> Result<()> {
