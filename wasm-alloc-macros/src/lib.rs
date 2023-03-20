@@ -165,7 +165,7 @@ impl BucketDescriptor {
         let idx_key = Index::from(idx);
         quote! {
             if size <= #size {
-                if let Some(ptr) = self.#idx_key.get().as_mut().unwrap().take_first_available_slot() {
+                if let Some(ptr) = self.#idx_key.get().as_mut().unwrap().claim_first_available_slot() {
                     return ptr as *mut u8;
                 }
             }
