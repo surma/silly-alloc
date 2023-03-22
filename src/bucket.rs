@@ -287,4 +287,27 @@ mod test {
         }
         Ok(())
     }
+
+    #[test]
+    fn alignment() -> Result<()> {
+        let mut b = MyBucketAllocator::new();
+        unsafe {
+            let layout = Layout::from_size_align(2, 8)?;
+            let ptr1 = b.alloc(layout);
+            // Alignment requirement should force the allocation into the last bucket desipte its size
+            assert!(ptr1 >= &mut b.2 as *mut _ as *mut u8);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn alignment_fail() -> Result<()> {
+        let mut b = MyBucketAllocator::new();
+        unsafe {
+            let layout = Layout::from_size_align(2, 32)?;
+            let ptr1 = b.alloc(layout);
+            assert!(ptr1.is_null());
+        }
+        Ok(())
+    }
 }

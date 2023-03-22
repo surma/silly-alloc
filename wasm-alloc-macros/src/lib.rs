@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{quote, spanned::Spanned};
 use syn::{
     parse::{Parse, ParseStream},
@@ -110,6 +110,17 @@ impl TryFrom<&Field> for BucketDescriptor {
     }
 }
 
+fn crate_path() -> Ident {
+    fn crate_name_option() -> Option<Ident> {
+        let pkg_name = std::env::var("CARGO_CRATE_NAME").ok()?;
+        if pkg_name == "wasm_alloc" {
+            return Some(Ident::new("crate", Span::call_site()));
+        }
+        None
+    }
+    crate_name_option().unwrap_or_else(|| Ident::new("wasm_alloc", Span::call_site()))
+}
+
 impl BucketDescriptor {
     fn num_segments(&self) -> usize {
         ((self
@@ -123,8 +134,9 @@ impl BucketDescriptor {
     }
 
     fn as_init_values(&self) -> TokenStream {
+        let crate_path = crate_path();
         quote! {
-            ::core::cell::UnsafeCell::new(BucketImpl::new())
+            ::core::cell::UnsafeCell::new(#crate_path::bucket::BucketImpl::new())
         }
         .into()
     }
@@ -138,15 +150,23 @@ impl BucketDescriptor {
             &format!("SlotWithAlign{}", align.try_to_int_literal().unwrap()),
             align.__span(),
         );
+        let crate_path = crate_path();
         quote! {
-            ::core::cell::UnsafeCell<BucketImpl<#slot_type_ident<#slot_size>, #num_segments>>
+            ::core::cell::UnsafeCell<#crate_path::bucket::BucketImpl<#crate_path::bucket::#slot_type_ident<#slot_size>, #num_segments>>
         }
         .into()
     }
 
     fn as_alloc_bucket_selectors(&self, idx: usize) -> TokenStream {
-        let BucketDescriptor { slot_size, .. } = self;
+        let BucketDescriptor {
+            slot_size, align, ..
+        } = self;
         let size = slot_size
+            .try_to_int_literal()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let align = align
             .try_to_int_literal()
             .unwrap()
             .parse::<usize>()
@@ -156,7 +176,7 @@ impl BucketDescriptor {
             {
                 let bucket = self.#idx_key.get().as_mut().unwrap();
                 bucket.ensure_init();
-                if size <= #size {
+                if size <= #size && align <= #align {
                     if let Some(ptr) = bucket.claim_first_available_slot() {
                         return ptr as *mut u8;
                     }
@@ -169,10 +189,12 @@ impl BucketDescriptor {
     fn as_dealloc_bucket_selectors(&self, idx: usize) -> TokenStream {
         let idx_key = Index::from(idx);
         quote! {
-            let bucket = self.#idx_key.get().as_mut().unwrap();
-            bucket.ensure_init();
-            if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
-                bucket.unset_slot(slot_idx);
+            {
+                let bucket = self.#idx_key.get().as_mut().unwrap();
+                bucket.ensure_init();
+                if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
+                    bucket.unset_slot(slot_idx);
+                }
             }
         }
         .into()
@@ -230,6 +252,7 @@ pub fn bucket_allocator(
                 unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
                     // FIXME: Respect align
                     let size = layout.size();
+                    let align = layout.align();
                     #(#alloc_bucket_selectors)*
                     core::ptr::null_mut()
                 }
