@@ -216,10 +216,22 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
     }
 
     pub fn slot_idx_for_ptr(&self, ptr: *const u8) -> Option<usize> {
-        // FIXME: Do math instead
+        let seg_stride = size_of::<Segment<S>>();
+        let slot_stride = size_of::<S>();
+
+        let start = self.segments.as_ptr() as *const u8;
+        let offset = unsafe { ptr.offset_from(start) };
+        let Ok(offset) = usize::try_from(offset) else { return None };
+        let mseg_idx = offset / seg_stride;
+        let offset = offset % seg_stride;
+        let mslot_idx = offset / slot_stride;
+
+        // FIXME: Trust the math
         for (seg_idx, seg) in self.get_segments().iter().enumerate() {
             for slot_idx in 0..NUM_SLOTS_PER_SEGMENT {
                 if seg.get_slot(slot_idx) == ptr {
+                    assert_eq!(seg_idx, mseg_idx, "Segment math didnt work out");
+                    assert_eq!(slot_idx, mslot_idx, "Slot math didnt work out");
                     return Some(seg_idx * NUM_SLOTS_PER_SEGMENT + slot_idx);
                 }
             }
