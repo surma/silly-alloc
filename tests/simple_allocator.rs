@@ -1,6 +1,9 @@
-// #![no_std]
+#![no_std]
 
 use wasm_alloc::bucket_allocator;
+
+extern crate alloc;
+use alloc::boxed::Box;
 
 #[bucket_allocator]
 struct BucketAllocator {
