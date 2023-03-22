@@ -9,8 +9,13 @@ wasm-alloc-macros = { path = "./wasm-alloc-macros" }
 
 [dev-dependencies]
 anyhow = "1.0.69"
+criterion = "0.4.0"
 rand = "0.8.5"
 wasmtime = "6.0.1"
+
+[[bench]]
+name = "alloc"
+harness = false
 
 [workspace]
 members = [
