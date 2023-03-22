@@ -156,7 +156,7 @@ pub struct BucketImpl<S: Slot, const N: usize> {
     segments: MaybeUninit<[Segment<S>; N]>,
 }
 
-impl<S: Slot, const N: usize> BucketImpl<S, N> {
+impl<S: Slot, const NUM_SEGMENTS: usize> BucketImpl<S, NUM_SEGMENTS> {
     pub const fn new() -> Self {
         Self {
             is_init: false,
@@ -175,12 +175,12 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
         self.is_init = true
     }
 
-    fn get_segments(&self) -> &[Segment<S>; N] {
+    fn get_segments(&self) -> &[Segment<S>; NUM_SEGMENTS] {
         assert!(self.is_init);
         unsafe { self.segments.assume_init_ref() }
     }
 
-    fn get_segments_mut(&mut self) -> &mut [Segment<S>; N] {
+    fn get_segments_mut(&mut self) -> &mut [Segment<S>; NUM_SEGMENTS] {
         assert!(self.is_init);
         unsafe { self.segments.assume_init_mut() }
     }
@@ -221,22 +221,17 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
 
         let start = self.segments.as_ptr() as *const u8;
         let offset = unsafe { ptr.offset_from(start) };
-        let Ok(offset) = usize::try_from(offset) else { return None };
-        let mseg_idx = offset / seg_stride;
+        // Conversion to usize will only succeed for positive numbers.
+        // If it's negative, ptr is in previous segment.
+        let offset = usize::try_from(offset).ok()?;
+        let seg_idx = offset / seg_stride;
         let offset = offset % seg_stride;
-        let mslot_idx = offset / slot_stride;
-
-        // FIXME: Trust the math
-        for (seg_idx, seg) in self.get_segments().iter().enumerate() {
-            for slot_idx in 0..NUM_SLOTS_PER_SEGMENT {
-                if seg.get_slot(slot_idx) == ptr {
-                    assert_eq!(seg_idx, mseg_idx, "Segment math didnt work out");
-                    assert_eq!(slot_idx, mslot_idx, "Slot math didnt work out");
-                    return Some(seg_idx * NUM_SLOTS_PER_SEGMENT + slot_idx);
-                }
-            }
+        let slot_idx = offset / slot_stride;
+        if seg_idx >= NUM_SEGMENTS || slot_idx > NUM_SLOTS_PER_SEGMENT {
+            return None;
         }
-        None
+
+        Some(seg_idx * NUM_SLOTS_PER_SEGMENT + slot_idx)
     }
 }
 
@@ -336,6 +331,27 @@ mod test {
             let layout = Layout::from_size_align(2, 32)?;
             let ptr1 = b.alloc(layout);
             assert!(ptr1.is_null());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn first_alloc_in_late_bucket() -> Result<()> {
+        unsafe {
+            // Rust doesn't guarantee field order in structs, so I don't know whether the 2byte bucket or the 8byte bucket comes first. So I am gonna test both, as they both have to work anyway.
+            let layouts = vec![
+                Layout::from_size_align(2, 1)?,
+                Layout::from_size_align(8, 1)?,
+            ];
+            for layout in layouts {
+                let b = MyBucketAllocator::new();
+                let _ptr1 = b.alloc(layout.clone());
+                let ptr2 = b.alloc(layout.clone());
+                let _ptr3 = b.alloc(layout.clone());
+                b.dealloc(ptr2, layout);
+                let ptr4 = b.alloc(layout.clone());
+                assert_eq!(ptr2, ptr4);
+            }
         }
         Ok(())
     }
