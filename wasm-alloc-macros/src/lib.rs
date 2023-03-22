@@ -250,7 +250,6 @@ pub fn bucket_allocator(
 
             unsafe impl ::core::alloc::GlobalAlloc for #name {
                 unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
-                    // FIXME: Respect align
                     let size = layout.size();
                     let align = layout.align();
                     #(#alloc_bucket_selectors)*
@@ -258,7 +257,8 @@ pub fn bucket_allocator(
                 }
 
                 unsafe fn dealloc(&self, ptr: *mut u8, layout: ::core::alloc::Layout) {
-                    // FIXME: Respect align
+                    let size = layout.size();
+                    let align = layout.align();
                     #(#dealloc_bucket_selectors)*
                 }
 

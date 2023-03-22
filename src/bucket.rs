@@ -1,7 +1,7 @@
 use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
-    mem::size_of,
+    mem::{size_of, MaybeUninit},
 };
 
 use bytemuck::Zeroable;
@@ -141,31 +141,52 @@ align_type!(SlotWithAlign4, 4);
 align_type!(SlotWithAlign8, 8);
 align_type!(SlotWithAlign16, 16);
 align_type!(SlotWithAlign32, 32);
+align_type!(SlotWithAlign64, 64);
+align_type!(SlotWithAlign128, 128);
+align_type!(SlotWithAlign256, 256);
+align_type!(SlotWithAlign512, 512);
 
 #[derive(Debug, Clone, Copy)]
 pub struct BucketImpl<S: Slot, const N: usize> {
-    // Deeply saddened that I had to introduce an `Option` here. There just currently is no way initializing this array in a const way. This `Option` can be removed when at least one of these options is available:
+    // Deeply saddened that I had to introduce a bool flag here. There just currently is no way initializing this array in a const way, so I have to defer it to runtime and track when it has been done. This flag can be removed when at least one of these options is available in stable rust:
     // - const fn can be in traits
-    // - core::ptr::write_bytes is const and stable
-    // - core::mem::MaybeUninit.zeroed() is const and stable (although that probably relies on the above)
-    segments: Option<[Segment<S>; N]>,
+    // - core::ptr::write_bytes is const
+    // - core::mem::MaybeUninit.zeroed() is const (although that probably relies on previous point)
+    is_init: bool,
+    segments: MaybeUninit<[Segment<S>; N]>,
 }
 
 impl<S: Slot, const N: usize> BucketImpl<S, N> {
     pub const fn new() -> Self {
-        Self { segments: None }
+        Self {
+            is_init: false,
+            segments: MaybeUninit::uninit(),
+        }
         // unsafe { MaybeUninit::zeroed().assume_init() }
     }
 
     pub fn ensure_init(&mut self) {
-        if self.segments.is_some() {
+        if self.is_init {
             return;
         }
-        self.segments = Some([Segment::<S>::default(); N]);
+        unsafe {
+            core::ptr::write_bytes(self.segments.as_mut_ptr(), 0u8, 1);
+        }
+        self.is_init = true
+    }
+
+    fn get_segments(&self) -> &[Segment<S>; N] {
+        assert!(self.is_init);
+        unsafe { self.segments.assume_init_ref() }
+    }
+
+    fn get_segments_mut(&mut self) -> &mut [Segment<S>; N] {
+        assert!(self.is_init);
+        unsafe { self.segments.assume_init_mut() }
     }
 
     pub fn claim_first_available_slot(&mut self) -> Option<*const u8> {
-        for seg in self.segments.as_mut().unwrap().iter_mut() {
+        for seg in self.get_segments_mut().iter_mut() {
             let Some(slot_idx) = seg.header.first_free_slot_idx() else {continue};
             seg.header.set_slot(slot_idx);
             return Some(seg.get_slot(slot_idx));
@@ -181,26 +202,22 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
 
     pub fn get_slot(&self, slot_idx: usize) -> *const u8 {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments.as_ref().unwrap()[seg_idx].get_slot(slot_idx)
+        self.get_segments()[seg_idx].get_slot(slot_idx)
     }
 
     pub fn set_slot(&mut self, slot_idx: usize) {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments.as_mut().unwrap()[seg_idx]
-            .header
-            .set_slot(slot_idx);
+        self.get_segments_mut()[seg_idx].header.set_slot(slot_idx);
     }
 
     pub fn unset_slot(&mut self, slot_idx: usize) {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments.as_mut().unwrap()[seg_idx]
-            .header
-            .unset_slot(slot_idx);
+        self.get_segments_mut()[seg_idx].header.unset_slot(slot_idx);
     }
 
     pub fn slot_idx_for_ptr(&self, ptr: *const u8) -> Option<usize> {
         // FIXME: Do math instead
-        for (seg_idx, seg) in self.segments.as_ref().unwrap().iter().enumerate() {
+        for (seg_idx, seg) in self.get_segments().iter().enumerate() {
             for slot_idx in 0..NUM_SLOTS_PER_SEGMENT {
                 if seg.get_slot(slot_idx) == ptr {
                     return Some(seg_idx * NUM_SLOTS_PER_SEGMENT + slot_idx);
@@ -302,7 +319,7 @@ mod test {
 
     #[test]
     fn alignment_fail() -> Result<()> {
-        let mut b = MyBucketAllocator::new();
+        let b = MyBucketAllocator::new();
         unsafe {
             let layout = Layout::from_size_align(2, 32)?;
             let ptr1 = b.alloc(layout);
