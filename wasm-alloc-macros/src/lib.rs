@@ -144,17 +144,6 @@ impl BucketDescriptor {
         .into()
     }
 
-    fn as_debug_print_stmts(&self, idx: usize) -> TokenStream {
-        let BucketDescriptor { name, .. } = self;
-
-        let idx_key = Index::from(idx);
-        let name = name.to_string();
-        quote! {
-            .field(#name, unsafe { &self.#idx_key.get().as_ref().unwrap() })
-        }
-        .into()
-    }
-
     fn as_alloc_bucket_selectors(&self, idx: usize) -> TokenStream {
         let BucketDescriptor { slot_size, .. } = self;
         let size = slot_size
@@ -164,9 +153,13 @@ impl BucketDescriptor {
             .unwrap();
         let idx_key = Index::from(idx);
         quote! {
-            if size <= #size {
-                if let Some(ptr) = self.#idx_key.get().as_mut().unwrap().claim_first_available_slot() {
-                    return ptr as *mut u8;
+            {
+                let bucket = self.#idx_key.get().as_mut().unwrap();
+                bucket.ensure_init();
+                if size <= #size {
+                    if let Some(ptr) = bucket.claim_first_available_slot() {
+                        return ptr as *mut u8;
+                    }
                 }
             }
         }
@@ -176,10 +169,10 @@ impl BucketDescriptor {
     fn as_dealloc_bucket_selectors(&self, idx: usize) -> TokenStream {
         let idx_key = Index::from(idx);
         quote! {
-            if let Some(bucket) = self.#idx_key.get().as_mut() {
-                if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
-                    bucket.unset_slot(slot_idx);
-                }
+            let bucket = self.#idx_key.get().as_mut().unwrap();
+            bucket.ensure_init();
+            if let Some(slot_idx) = bucket.slot_idx_for_ptr(ptr) {
+                bucket.unset_slot(slot_idx);
             }
         }
         .into()
@@ -193,7 +186,6 @@ pub fn bucket_allocator(
 ) -> proc_macro::TokenStream {
     let BucketAllocatorDescriptor { name, buckets } = parse_macro_input!(input);
     // TODO: Sort buckets?
-    let name_str = name.to_string();
     let bucket_field_decls: Vec<TokenStream> = buckets
         .iter()
         .map(|bucket| bucket.as_struct_fields())
@@ -202,12 +194,6 @@ pub fn bucket_allocator(
     let bucket_field_inits: Vec<TokenStream> = buckets
         .iter()
         .map(|bucket| bucket.as_init_values())
-        .collect();
-
-    let bucket_field_dbg: Vec<TokenStream> = buckets
-        .iter()
-        .enumerate()
-        .map(|(idx, bucket)| bucket.as_debug_print_stmts(idx))
         .collect();
 
     let alloc_bucket_selectors: Vec<TokenStream> = buckets
@@ -223,7 +209,7 @@ pub fn bucket_allocator(
         .collect();
 
     quote! {
-            #[derive(Default)]
+            #[derive(Default, Debug)]
             struct #name(
                 #(#bucket_field_decls),*
             );
@@ -236,23 +222,19 @@ pub fn bucket_allocator(
                 }
             }
 
-            impl Debug for #name {
-                fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-                    f.debug_struct(#name_str)
-                        #(#bucket_field_dbg)*
-                        .finish()
-                }
-            }
+            unsafe impl ::core::marker::Sync for #name {}
+
+            unsafe impl ::bytemuck::Zeroable for #name {}
 
             unsafe impl ::core::alloc::GlobalAlloc for #name {
-                unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+                unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
                     // FIXME: Respect align
                     let size = layout.size();
                     #(#alloc_bucket_selectors)*
                     core::ptr::null_mut()
                 }
 
-                unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+                unsafe fn dealloc(&self, ptr: *mut u8, layout: ::core::alloc::Layout) {
                     // FIXME: Respect align
                     #(#dealloc_bucket_selectors)*
                 }

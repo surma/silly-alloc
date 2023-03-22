@@ -1,14 +1,16 @@
 use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
-    mem::{size_of, MaybeUninit},
+    mem::size_of,
 };
 
+use bytemuck::Zeroable;
+
 // TODO: Implement thread-safe segments
+#[derive(Clone, Copy)]
 struct SegmentHeader([u32; NUM_U32_PER_HEADER]);
 impl SegmentHeader {
     const fn new() -> Self {
-        // unsafe { MaybeUninit::uninit().assume_init() }
         SegmentHeader([0u32; NUM_U32_PER_HEADER])
     }
 
@@ -38,6 +40,8 @@ impl SegmentHeader {
     }
 }
 
+unsafe impl Zeroable for SegmentHeader {}
+
 impl Debug for SegmentHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("SegmentHeader {")?;
@@ -59,30 +63,22 @@ const NUM_U32_PER_HEADER: usize = 1;
 pub const NUM_SLOTS_PER_SEGMENT: usize = NUM_U32_PER_HEADER * size_of::<u32>() * 8;
 pub const SEGMENT_HEADER_SIZE: usize = NUM_U32_PER_HEADER * size_of::<u32>();
 
-pub trait Slot {
+pub trait Slot: Copy + Default {
     fn get(&self) -> *const u8;
     fn size() -> usize;
 }
 
+#[derive(Clone, Copy)]
 pub struct Segment<S: Slot> {
     header: SegmentHeader,
     slots: [S; NUM_SLOTS_PER_SEGMENT],
 }
 
-impl<S: Slot> Debug for Segment<S> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Segment")
-            .field("header", &self.header)
-            .finish()?;
-        Ok(())
-    }
-}
-
 impl<S: Slot> Segment<S> {
-    const fn new() -> Self {
+    fn new() -> Self {
         Segment {
             header: SegmentHeader::new(),
-            slots: unsafe { MaybeUninit::uninit().assume_init() },
+            slots: [S::default(); NUM_SLOTS_PER_SEGMENT],
         }
     }
 
@@ -93,18 +89,35 @@ impl<S: Slot> Segment<S> {
 
 impl<S: Slot> Default for Segment<S> {
     fn default() -> Self {
-        Segment::<S>::new()
+        Self::new()
+    }
+}
+
+unsafe impl<S: Slot + Zeroable> Zeroable for Segment<S> {}
+
+impl<S: Slot> Debug for Segment<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Segment")
+            .field("header", &self.header)
+            .finish()?;
+        Ok(())
     }
 }
 
 macro_rules! align_type {
     ($name:ident, $n:expr) => {
-        #[derive(Debug)]
+        #[derive(Debug, Clone, Copy)]
         #[repr(C, align($n))]
         pub struct $name<const N: usize>([u8; N]);
         impl<const N: usize> $name<N> {
             pub const fn new() -> Self {
                 $name([0u8; N])
+            }
+        }
+
+        impl<const N: usize> Default for $name<N> {
+            fn default() -> Self {
+                Self::new()
             }
         }
 
@@ -117,6 +130,8 @@ macro_rules! align_type {
                 N
             }
         }
+
+        unsafe impl<const N: usize> Zeroable for $name<N> {}
     };
 }
 
@@ -127,20 +142,30 @@ align_type!(SlotWithAlign8, 8);
 align_type!(SlotWithAlign16, 16);
 align_type!(SlotWithAlign32, 32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct BucketImpl<S: Slot, const N: usize> {
-    segments: [Segment<S>; N],
+    // Deeply saddened that I had to introduce an `Option` here. There just currently is no way initializing this array in a const way. This `Option` can be removed when at least one of these options is available:
+    // - const fn can be in traits
+    // - core::ptr::write_bytes is const and stable
+    // - core::mem::MaybeUninit.zeroed() is const and stable (although that probably relies on the above)
+    segments: Option<[Segment<S>; N]>,
 }
 
 impl<S: Slot, const N: usize> BucketImpl<S, N> {
     pub const fn new() -> Self {
-        BucketImpl {
-            segments: unsafe { MaybeUninit::uninit().assume_init() },
+        Self { segments: None }
+        // unsafe { MaybeUninit::zeroed().assume_init() }
+    }
+
+    pub fn ensure_init(&mut self) {
+        if self.segments.is_some() {
+            return;
         }
+        self.segments = Some([Segment::<S>::default(); N]);
     }
 
     pub fn claim_first_available_slot(&mut self) -> Option<*const u8> {
-        for seg in self.segments.iter_mut() {
+        for seg in self.segments.as_mut().unwrap().iter_mut() {
             let Some(slot_idx) = seg.header.first_free_slot_idx() else {continue};
             seg.header.set_slot(slot_idx);
             return Some(seg.get_slot(slot_idx));
@@ -156,22 +181,26 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
 
     pub fn get_slot(&self, slot_idx: usize) -> *const u8 {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments[seg_idx].get_slot(slot_idx)
+        self.segments.as_ref().unwrap()[seg_idx].get_slot(slot_idx)
     }
 
     pub fn set_slot(&mut self, slot_idx: usize) {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments[seg_idx].header.set_slot(slot_idx);
+        self.segments.as_mut().unwrap()[seg_idx]
+            .header
+            .set_slot(slot_idx);
     }
 
     pub fn unset_slot(&mut self, slot_idx: usize) {
         let (seg_idx, slot_idx) = self.global_to_local(slot_idx);
-        self.segments[seg_idx].header.unset_slot(slot_idx);
+        self.segments.as_mut().unwrap()[seg_idx]
+            .header
+            .unset_slot(slot_idx);
     }
 
     pub fn slot_idx_for_ptr(&self, ptr: *const u8) -> Option<usize> {
         // FIXME: Do math instead
-        for (seg_idx, seg) in self.segments.iter().enumerate() {
+        for (seg_idx, seg) in self.segments.as_ref().unwrap().iter().enumerate() {
             for slot_idx in 0..NUM_SLOTS_PER_SEGMENT {
                 if seg.get_slot(slot_idx) == ptr {
                     return Some(seg_idx * NUM_SLOTS_PER_SEGMENT + slot_idx);
@@ -182,17 +211,19 @@ impl<S: Slot, const N: usize> BucketImpl<S, N> {
     }
 }
 
-pub struct SlotSize<const N: usize>;
-pub struct NumSlots<const N: usize>;
-pub struct Align<const N: usize>;
-
-pub struct Bucket<S, N, A = Align<1>>(PhantomData<S>, PhantomData<N>, PhantomData<A>);
+unsafe impl<S: Slot, const N: usize> Zeroable for BucketImpl<S, N> {}
 
 impl<S: Slot, const N: usize> Default for BucketImpl<S, N> {
     fn default() -> Self {
         BucketImpl::<S, N>::new()
     }
 }
+
+pub struct SlotSize<const N: usize>;
+pub struct NumSlots<const N: usize>;
+pub struct Align<const N: usize>;
+
+pub struct Bucket<S, N, A = Align<1>>(PhantomData<S>, PhantomData<N>, PhantomData<A>);
 
 #[cfg(test)]
 mod test {
