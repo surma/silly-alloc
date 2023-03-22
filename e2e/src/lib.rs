@@ -11,7 +11,7 @@ use alloc::boxed::Box;
 
 #[global_allocator]
 static ALLOCATOR: BumpAllocator<WasmPageMemory, SingleThreadedHead> =
-    BumpAllocator::new(WasmPageMemory {}, SingleThreadedHead::new());
+    BumpAllocator::new(WasmPageMemory::new(), SingleThreadedHead::new());
 
 #[no_mangle]
 extern "C" fn test_page_growth() {
@@ -29,5 +29,5 @@ extern "C" fn test_page_growth() {
 
 #[panic_handler]
 fn panic_handler(_: &PanicInfo) -> ! {
-    core::arch::wasm32::unreachable();
+    core::arch::wasm32::unreachable()
 }

@@ -3,6 +3,10 @@ name = "wasm_alloc"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+bytemuck = "1.13.1"
+wasm-alloc-macros = { path = "./wasm-alloc-macros" }
+
 [dev-dependencies]
 anyhow = "1.0.69"
 rand = "0.8.5"
@@ -10,5 +14,6 @@ wasmtime = "6.0.1"
 
 [workspace]
 members = [
-  "e2e"
+  "e2e",
+  "wasm-alloc-macros"
 ]
