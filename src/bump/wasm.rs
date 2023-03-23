@@ -3,14 +3,20 @@ extern "C" {
     static __heap_base: u8;
 }
 
-use crate::result::BumpAllocatorMemoryResult;
-use crate::{bump::BumpAllocatorMemory, result::BumpAllocatorMemoryError};
+use super::{BumpAllocatorMemoryError, BumpAllocatorMemoryResult};
+use crate::bump::BumpAllocatorMemory;
 
 pub struct WasmPageMemory;
 
 impl WasmPageMemory {
     pub const fn new() -> Self {
         WasmPageMemory {}
+    }
+}
+
+impl Default for WasmPageMemory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

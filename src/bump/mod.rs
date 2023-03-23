@@ -6,11 +6,11 @@ use core::{
     ptr::null_mut,
 };
 
-use crate::{head::ThreadSafeHead, result::BumpAllocatorMemoryResult};
-use crate::{
-    head::{Head, SingleThreadedHead},
-    result::BumpAllocatorMemoryError,
-};
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
+pub mod head;
+pub use head::{Head, SingleThreadedHead, ThreadSafeHead};
 
 pub trait BumpAllocatorMemory {
     fn start(&self) -> *const u8;
@@ -33,6 +33,14 @@ pub trait BumpAllocatorMemory {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum BumpAllocatorMemoryError {
+    GrowthFailed,
+    Unknown,
+}
+
+pub type BumpAllocatorMemoryResult<T> = core::result::Result<T, BumpAllocatorMemoryError>;
+
 impl BumpAllocatorMemory for &mut [u8] {
     fn start(&self) -> *const u8 {
         self.as_ptr()
@@ -53,30 +61,50 @@ pub struct BumpAllocator<'a, M: BumpAllocatorMemory = &'a mut [u8], H: Head = Si
     lifetime: PhantomData<&'a u8>,
 }
 
-// TODO: impl Default for WasmPageMemory + SingleSThreadedHead
-
-impl<'a, M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<'a, M, H> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let head: i64 = unsafe { self.head.get().as_ref() }
-            .unwrap()
-            .num_bytes_used() as i64;
-        let size = self.memory.size();
-        f.debug_struct("BumpAllocator")
-            .field("head", &head)
-            .field("size", &size)
-            .finish()
-    }
-}
-
 impl<'a> BumpAllocator<'a, &'a mut [u8], ThreadSafeHead> {
-    pub fn default_threadsafe(arena: &'a mut [u8]) -> Self {
-        Self::new(arena, ThreadSafeHead::new())
+    pub fn arena_threadsafe(
+        arena: &'a mut [u8],
+    ) -> BumpAllocator<'a, &'a mut [u8], ThreadSafeHead> {
+        BumpAllocator {
+            memory: arena,
+            head: UnsafeCell::new(ThreadSafeHead::new()),
+            lifetime: PhantomData,
+        }
     }
 }
 
 impl<'a> BumpAllocator<'a, &'a mut [u8], SingleThreadedHead> {
-    pub fn default_single_threaded(arena: &'a mut [u8]) -> Self {
-        Self::new(arena, SingleThreadedHead::new())
+    pub fn arena_singlethreaded(
+        arena: &'a mut [u8],
+    ) -> BumpAllocator<'a, &'a mut [u8], SingleThreadedHead> {
+        BumpAllocator {
+            memory: arena,
+            head: UnsafeCell::new(SingleThreadedHead::new()),
+            lifetime: PhantomData,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'a> BumpAllocator<'a, wasm::WasmPageMemory, ThreadSafeHead> {
+    pub const fn wasm_threadsafe() -> BumpAllocator<'a, wasm::WasmPageMemory, ThreadSafeHead> {
+        BumpAllocator {
+            memory: wasm::WasmPageMemory::new(),
+            head: UnsafeCell::new(ThreadSafeHead::new()),
+            lifetime: PhantomData,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<'a> BumpAllocator<'a, wasm::WasmPageMemory, SingleThreadedHead> {
+    pub const fn wasm_singlethreaded() -> BumpAllocator<'a, wasm::WasmPageMemory, SingleThreadedHead>
+    {
+        BumpAllocator {
+            memory: wasm::WasmPageMemory::new(),
+            head: UnsafeCell::new(SingleThreadedHead::new()),
+            lifetime: PhantomData,
+        }
     }
 }
 
@@ -106,6 +134,19 @@ impl<'a, M: BumpAllocatorMemory, H: Head + Default> BumpAllocator<'a, M, H> {
 
     fn as_head_mut(&self) -> &mut H {
         self.try_as_head_mut().unwrap()
+    }
+}
+
+impl<'a, M: BumpAllocatorMemory, H: Head + Default> Debug for BumpAllocator<'a, M, H> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let head: i64 = unsafe { self.head.get().as_ref() }
+            .unwrap()
+            .num_bytes_used() as i64;
+        let size = self.memory.size();
+        f.debug_struct("BumpAllocator")
+            .field("head", &head)
+            .field("size", &size)
+            .finish()
     }
 }
 
@@ -153,7 +194,7 @@ mod tests {
     fn increment() {
         let mut arena = [0u8; 1024];
         {
-            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            let allocator = BumpAllocator::arena_singlethreaded(arena.as_mut_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
                 assert!(ptr1 % 4 == 0);
@@ -173,7 +214,7 @@ mod tests {
     fn null() {
         let mut arena = [0u8; 4];
         {
-            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            let allocator = BumpAllocator::arena_singlethreaded(arena.as_mut_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
                 assert_eq!(ptr1 % 4, 0);
@@ -187,7 +228,7 @@ mod tests {
     fn use_last_byte() {
         let mut arena = [0u8; 4];
         {
-            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            let allocator = BumpAllocator::arena_singlethreaded(arena.as_mut_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
                 assert_eq!(ptr1 % 4, 0);
@@ -206,7 +247,7 @@ mod tests {
         for _attempts in 1..100 {
             let mut arena = Vec::with_capacity(SIZE);
             arena.resize(SIZE, 0);
-            let allocator = BumpAllocator::default_single_threaded(arena.as_mut_slice());
+            let allocator = BumpAllocator::arena_singlethreaded(arena.as_mut_slice());
             let mut last_ptr: Option<usize> = None;
             for _allocation in 1..10 {
                 let size = rng.gen_range(1..=32);
