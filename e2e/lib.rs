@@ -2,15 +2,13 @@
 
 use core::panic::PanicInfo;
 
-use silly_alloc::bump::wasm::WasmMemoryArena;
-use silly_alloc::bump::{BumpAllocator, SingleThreadedHead};
+use silly_alloc::WasmBumpAllocator;
 
 extern crate alloc;
 use alloc::boxed::Box;
 
 #[global_allocator]
-static ALLOCATOR: BumpAllocator<WasmMemoryArena, SingleThreadedHead> =
-    BumpAllocator::wasmmemoryarena_singlethreaded();
+static ALLOCATOR: WasmBumpAllocator = WasmBumpAllocator::with_memory();
 
 #[no_mangle]
 extern "C" fn test_page_growth() {

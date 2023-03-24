@@ -19,9 +19,9 @@
 
 pub mod bump;
 pub use bump::BumpAllocator;
-
+pub use bump::SliceBumpAllocator;
 #[cfg(target_arch = "wasm32")]
-pub use bump::wasm::WasmMemoryArena;
+pub use bump::WasmBumpAllocator;
 
 pub mod bucket;
 

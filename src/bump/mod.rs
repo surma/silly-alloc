@@ -9,13 +9,13 @@ Bump allocators work on a linear chunk of memory and only store a pointer where 
 ## Using an array or slice as heap
 
 ```rust,no_run
-use silly_alloc::BumpAllocator;
+use silly_alloc::SliceBumpAllocator;
 
 const ARENA_SIZE: usize = 64 * 1024 * 1024;
 static arena: [u8; ARENA_SIZE] = [0u8; ARENA_SIZE];
 
 #[global_allocator]
-static ALLOCATOR: BumpAllocator = BumpAllocator::slicearena_singlethreaded(arena.as_slice());
+static ALLOCATOR: SliceBumpAllocator = SliceBumpAllocator::with_slice(arena.as_slice());
 ```
 
 ## Using the entire WebAssembly Memory as heap
@@ -23,13 +23,13 @@ static ALLOCATOR: BumpAllocator = BumpAllocator::slicearena_singlethreaded(arena
 ```rust,ignore
 # FIXME: This should somehow target wasm32-unknown-unknown
 #![doc(test(attr(targetxxx="wasm32-unknown-unknown")))]
-se silly_alloc::{BumpAllocator, WasmMemory};
+se silly_alloc::WasmBumpAllocator;
 
 #[global_allocator]
-static ALLOCATOR: BumpAllocator<WasmMemory> = BumpAllocator::wasmarena_singlethreaded();
+static ALLOCATOR: WasmBumpAllocator = WasmBumpAllocator::singlethreaded();
 ```
 
-Note that `WasmMemory` respects the heap start address that is provided by the linker, making sure `static`s and other data doesn’t get corrupted by runtime allocations.
+Note that `WasmBumpAllocator` respects the heap start address that is provided by the linker, making sure `static`s and other data doesn’t get corrupted by runtime allocations.
 
 */
 use core::{
@@ -40,11 +40,13 @@ use core::{
     ptr::null_mut,
 };
 
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
-
 pub mod head;
 pub use head::{Head, SingleThreadedHead, ThreadSafeHead};
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{ThreadsafeWasmBumpAllocator, WasmBumpAllocator};
 
 pub trait BumpAllocatorArena {
     /// Returns the first pointer in the arena.
@@ -99,24 +101,11 @@ pub struct BumpAllocator<'a, M: BumpAllocatorArena = &'a [u8], H: Head = SingleT
     lifetime: PhantomData<&'a u8>,
 }
 
-impl<'a> BumpAllocator<'a, &'a [u8], ThreadSafeHead> {
-    /// Creates a new BumpAllocator using the given slice as the arena with thread-safety.
-    pub const fn slicearena_threadsafe(
-        arena: &'a [u8],
-    ) -> BumpAllocator<'a, &'a [u8], ThreadSafeHead> {
-        BumpAllocator {
-            memory: arena,
-            head: UnsafeCell::new(ThreadSafeHead::new()),
-            lifetime: PhantomData,
-        }
-    }
-}
+/// A `BumpAllocator` that uses the given slice as the arena.
+pub type SliceBumpAllocator<'a> = BumpAllocator<'a, &'a [u8], SingleThreadedHead>;
 
-impl<'a> BumpAllocator<'a, &'a [u8], SingleThreadedHead> {
-    /// Creates a new BumpAllocator using the given slice as the arena without thread-safety.
-    pub const fn slicearena_singlethreaded(
-        arena: &'a [u8],
-    ) -> BumpAllocator<'a, &'a [u8], SingleThreadedHead> {
+impl<'a> SliceBumpAllocator<'a> {
+    pub const fn with_slice(arena: &'a [u8]) -> SliceBumpAllocator<'a> {
         BumpAllocator {
             memory: arena,
             head: UnsafeCell::new(SingleThreadedHead::new()),
@@ -125,27 +114,14 @@ impl<'a> BumpAllocator<'a, &'a [u8], SingleThreadedHead> {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl<'a> BumpAllocator<'a, wasm::WasmMemoryArena, ThreadSafeHead> {
-    /// Creates a new BumpAllocator using the entire Wasm memory as the arena with thread-safety.
-    pub const fn wasmmemoryarena_threadsafe(
-    ) -> BumpAllocator<'a, wasm::WasmMemoryArena, ThreadSafeHead> {
-        BumpAllocator {
-            memory: wasm::WasmMemoryArena::new(),
-            head: UnsafeCell::new(ThreadSafeHead::new()),
-            lifetime: PhantomData,
-        }
-    }
-}
+/// A `BumpAllocator` that uses the given slice as the arena.
+pub type ThreadsafeSliceBumpAllocator<'a> = BumpAllocator<'a, &'a [u8], ThreadSafeHead>;
 
-#[cfg(target_arch = "wasm32")]
-impl<'a> BumpAllocator<'a, wasm::WasmMemoryArena, SingleThreadedHead> {
-    /// Creates a new BumpAllocator using the entire Wasm memory as the arena without thread-safety.
-    pub const fn wasmmemoryarena_singlethreaded(
-    ) -> BumpAllocator<'a, wasm::WasmMemoryArena, SingleThreadedHead> {
+impl<'a> ThreadsafeSliceBumpAllocator<'a> {
+    pub const fn with_slice(arena: &'a [u8]) -> ThreadsafeSliceBumpAllocator<'a> {
         BumpAllocator {
-            memory: wasm::WasmMemoryArena::new(),
-            head: UnsafeCell::new(SingleThreadedHead::new()),
+            memory: arena,
+            head: UnsafeCell::new(ThreadSafeHead::new()),
             lifetime: PhantomData,
         }
     }
@@ -237,7 +213,7 @@ mod tests {
     fn increment() {
         let arena = [0u8; 1024];
         {
-            let allocator = BumpAllocator::slicearena_singlethreaded(arena.as_slice());
+            let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
                 assert!(ptr1 % 4 == 0);
@@ -257,7 +233,7 @@ mod tests {
     fn null() {
         let arena = [0u8; 4];
         {
-            let allocator = BumpAllocator::slicearena_singlethreaded(arena.as_slice());
+            let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(4, 4).unwrap()) as usize;
                 assert_eq!(ptr1 % 4, 0);
@@ -271,7 +247,7 @@ mod tests {
     fn use_last_byte() {
         let arena = [0u8; 4];
         {
-            let allocator = BumpAllocator::slicearena_singlethreaded(arena.as_slice());
+            let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             unsafe {
                 let ptr1 = allocator.alloc(Layout::from_size_align(3, 4).unwrap()) as usize;
                 assert_eq!(ptr1 % 4, 0);
@@ -290,7 +266,7 @@ mod tests {
         for _attempts in 1..100 {
             let mut arena = Vec::with_capacity(SIZE);
             arena.resize(SIZE, 0);
-            let allocator = BumpAllocator::slicearena_singlethreaded(arena.as_slice());
+            let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             let mut last_ptr: Option<usize> = None;
             for _allocation in 1..10 {
                 let size = rng.gen_range(1..=32);
