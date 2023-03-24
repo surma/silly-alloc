@@ -10,6 +10,8 @@ wasm-alloc-macros = { path = "./wasm-alloc-macros" }
 [dev-dependencies]
 anyhow = "1.0.69"
 rand = "0.8.5"
+serde = "1.0.158"
+tinytemplate = "1.2.1"
 wasmtime = "6.0.1"
 
 [workspace]

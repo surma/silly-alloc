@@ -207,6 +207,7 @@ pub fn bucket_allocator(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let BucketAllocatorDescriptor { name, buckets } = parse_macro_input!(input);
+
     // TODO: Sort buckets?
     let bucket_field_decls: Vec<TokenStream> = buckets
         .iter()

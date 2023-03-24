@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
-path = "dummy.rs"
+path = "{name}"
 
 [dependencies]
-wasm_alloc = { path = "../" }
+wasm_alloc = \{ path = "../" }
