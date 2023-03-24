@@ -7,6 +7,7 @@ use core::{
 use bytemuck::Zeroable;
 
 // TODO: Implement thread-safe segments
+// #[cfg(target_feature = "feature")]
 #[derive(Clone, Copy)]
 struct SegmentHeader([u32; NUM_U32_PER_HEADER]);
 impl SegmentHeader {
