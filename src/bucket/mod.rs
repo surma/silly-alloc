@@ -355,4 +355,23 @@ mod test {
         }
         Ok(())
     }
+
+    #[test]
+    #[ignore]
+    fn unsorted_buckets() -> Result<()> {
+        #[bucket_allocator]
+        struct MyBucketAllocator {
+            vec8: Bucket<SlotSize<8>, NumSlots<32>, Align<8>>,
+            vec2: Bucket<SlotSize<2>, NumSlots<32>, Align<8>>,
+        }
+
+        unsafe {
+            let b = MyBucketAllocator::new();
+            let ptr1 = b.alloc(Layout::from_size_align(2, 2)?);
+            let ptr2 = b.alloc(Layout::from_size_align(8, 8)?);
+            // Assert the two allocations are in different buckets
+            assert!(ptr1.offset_from(ptr2).abs() > 8);
+        }
+        Ok(())
+    }
 }
