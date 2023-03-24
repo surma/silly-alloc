@@ -1,11 +1,11 @@
 [package]
-name = "wasm_alloc"
+name = "silly-alloc"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 bytemuck = "1.13.1"
-wasm-alloc-macros = { path = "./wasm-alloc-macros" }
+silly-alloc-macros = { path = "./silly-alloc-macros" }
 
 [dev-dependencies]
 anyhow = "1.0.69"
@@ -17,5 +17,5 @@ wasmtime = "6.0.1"
 [workspace]
 members = [
   "e2e",
-  "wasm-alloc-macros"
+  "silly-alloc-macros"
 ]

@@ -8,4 +8,4 @@ crate-type = ["cdylib"]
 path = "{name}"
 
 [dependencies]
-wasm_alloc = \{ path = "../" }
+silly-alloc = \{ path = "../" }

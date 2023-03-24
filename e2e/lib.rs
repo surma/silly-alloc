@@ -2,8 +2,8 @@
 
 use core::panic::PanicInfo;
 
-use wasm_alloc::bump::wasm::WasmPageMemory;
-use wasm_alloc::bump::{BumpAllocator, SingleThreadedHead};
+use silly_alloc::bump::wasm::WasmPageMemory;
+use silly_alloc::bump::{BumpAllocator, SingleThreadedHead};
 
 extern crate alloc;
 use alloc::boxed::Box;

@@ -8,6 +8,8 @@ use syn::{
 mod cast_helpers;
 use cast_helpers::*;
 
+const CRATE_NAME: &str = "silly_alloc";
+
 struct BucketAllocatorDescriptor {
     name: Ident,
     buckets: Vec<BucketDescriptor>,
@@ -113,12 +115,12 @@ impl TryFrom<&Field> for BucketDescriptor {
 fn crate_path() -> Ident {
     fn crate_name_option() -> Option<Ident> {
         let pkg_name = std::env::var("CARGO_CRATE_NAME").ok()?;
-        if pkg_name == "wasm_alloc" {
+        if pkg_name == CRATE_NAME {
             return Some(Ident::new("crate", Span::call_site()));
         }
         None
     }
-    crate_name_option().unwrap_or_else(|| Ident::new("wasm_alloc", Span::call_site()))
+    crate_name_option().unwrap_or_else(|| Ident::new(CRATE_NAME, Span::call_site()))
 }
 
 impl BucketDescriptor {

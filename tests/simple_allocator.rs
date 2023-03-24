@@ -1,6 +1,6 @@
 #![no_std]
 
-use wasm_alloc::bucket_allocator;
+use silly_alloc::bucket_allocator;
 
 extern crate alloc;
 use alloc::boxed::Box;

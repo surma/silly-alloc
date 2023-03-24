@@ -1,5 +1,5 @@
 [package]
-name = "wasm-alloc-macros"
+name = "silly-alloc-macros"
 version = "0.1.0"
 edition = "2021"
 

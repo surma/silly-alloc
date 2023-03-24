@@ -8,4 +8,4 @@ crate-type = ["cdylib"]
 path = "dummy.rs"
 
 [dependencies]
-wasm_alloc = { path = "../" }
+silly-alloc = { path = "../" }

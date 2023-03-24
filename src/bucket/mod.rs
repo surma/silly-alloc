@@ -257,7 +257,7 @@ mod test {
 
     use anyhow::Result;
 
-    use wasm_alloc_macros::bucket_allocator;
+    use silly_alloc_macros::bucket_allocator;
 
     #[bucket_allocator]
     struct MyBucketAllocator {
