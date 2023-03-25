@@ -1,3 +1,50 @@
+/*!
+Bucket allocators.
+
+A bucket allocator defines multiple buckets where each item has the same size. The number and granularity of the buckets can be tuned to what is typical allocation behavior of the app at hand. In contrast to bump allocators, bucket allocators can also free memory.
+
+# Examples
+
+You can create a custom bucket allocator by writing a (pseudo) struct that contains the parameters for all buckets:
+
+```rust
+use silly_alloc::bucket_allocator;
+
+#[bucket_allocator]
+struct MyBucketAllocator {
+    vec2: Bucket<SlotSize<2>, NumSlots<128>, Align<2>>,
+    overflow: Bucket<SlotSize<64>, NumSlots<64>, Align<64>>
+}
+```
+
+Note that these types and generics are not really in use. They are merely there for an idiomatic and syntactically plausible way to provide the parameters. The macro rewrites this struct definition to another one using different types.
+
+The new bucket allocator can then be instantiated and used as a global allocator as per usual:
+
+```rust
+# use silly_alloc::bucket_allocator;
+#
+# #[bucket_allocator]
+# struct MyBucketAllocator {
+#     vec2: Bucket<SlotSize<2>, NumSlots<128>, Align<2>>,
+#     overflow: Bucket<SlotSize<64>, NumSlots<64>, Align<64>>
+# }
+#[global_allocator]
+static ALLOCATOR: MyBucketAllocator = MyBucketAllocator::new();
+```
+
+Buckets are checked for the best fit in order of specification. Full buckets are skipped.
+
+# Technical details
+
+A bucket is defined by three parameters:
+
+- The size of an item in the bucket
+- The number of items that fit in the bucket
+- An optional alignment constraint
+
+The speed of bucket allocators stems from the fact that all items in the bucket are the same size, and as such a simple bit mask is enough to track if a “slot” is in use or not. For simplicity, 32 slots a grouped into one segment, where a single `u32` is used to track which slot has already been allocated. A bucket, as a consequence, is a series of segments. This also implies that the size of the bucket will be rounded up to the next multiple of 32.
+*/
 use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
