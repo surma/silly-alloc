@@ -328,6 +328,24 @@ mod test {
     }
 
     #[test]
+    fn full_bucket() -> Result<()> {
+        #[bucket_allocator]
+        struct MyBucketAllocator {
+            vec2: Bucket<SlotSize<2>, NumSlots<32>, Align<2>>,
+        }
+        unsafe {
+            let b = MyBucketAllocator::new();
+            let l = Layout::from_size_align(2, 1)?;
+            for _ in 0..32 {
+                b.alloc(l);
+            }
+            let ptr = b.alloc(l);
+            assert!(ptr.is_null());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn reuse() -> Result<()> {
         let b = MyBucketAllocator::new();
         unsafe {
@@ -400,6 +418,21 @@ mod test {
                 let ptr4 = b.alloc(layout.clone());
                 assert_eq!(ptr2, ptr4);
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn small_buckets() -> Result<()> {
+        #[bucket_allocator]
+        struct MyBucketAllocator {
+            vec2: Bucket<SlotSize<2>, NumSlots<1>, Align<2>>,
+        }
+        unsafe {
+            let b = MyBucketAllocator::new();
+            let l = Layout::from_size_align(2, 2)?;
+            let ptr1 = b.alloc(l);
+            assert!(!ptr1.is_null());
         }
         Ok(())
     }
