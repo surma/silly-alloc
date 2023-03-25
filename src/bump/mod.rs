@@ -154,6 +154,10 @@ impl<'a, M: BumpAllocatorArena, H: Head + Default> BumpAllocator<'a, M, H> {
     fn as_head_mut(&self) -> &mut H {
         self.try_as_head_mut().unwrap()
     }
+
+    pub fn arena(&self) -> &dyn BumpAllocatorArena {
+        &self.memory
+    }
 }
 
 impl<'a, M: BumpAllocatorArena, H: Head + Default> Debug for BumpAllocator<'a, M, H> {
@@ -206,8 +210,8 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{thread_rng, Rng};
     use std::vec::Vec;
+    use xorshift;
 
     #[test]
     fn increment() {
@@ -261,7 +265,8 @@ mod tests {
     fn minifuzz() {
         const SIZE: usize = 1024 * 1024;
 
-        let mut rng = thread_rng();
+        use xorshift::{Rng, SeedableRng};
+        let mut rng = xorshift::Xoroshiro128::from_seed(&[1u64, 2, 3, 4]);
 
         for _attempts in 1..100 {
             let mut arena = Vec::with_capacity(SIZE);
@@ -269,8 +274,8 @@ mod tests {
             let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             let mut last_ptr: Option<usize> = None;
             for _allocation in 1..10 {
-                let size = rng.gen_range(1..=32);
-                let alignment = 1 << rng.gen_range(1..=5);
+                let size = rng.gen_range(1, 32);
+                let alignment = 1 << rng.gen_range(1, 5);
                 let layout = Layout::from_size_align(size, alignment).unwrap();
                 let ptr = unsafe { allocator.alloc(layout) as usize };
                 if let Some(last_ptr) = last_ptr {

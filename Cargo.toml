@@ -9,13 +9,11 @@ silly-alloc-macros = { path = "./silly-alloc-macros" }
 
 [dev-dependencies]
 anyhow = "1.0.69"
-rand = "0.8.5"
 serde = "1.0.158"
 tinytemplate = "1.2.1"
-wasmtime = "6.0.1"
+xorshift = "0.1.3"
 
 [workspace]
 members = [
-  "e2e",
   "silly-alloc-macros"
 ]
