@@ -27,7 +27,7 @@ impl Parse for BucketAllocatorDescriptor {
 }
 
 struct BucketDescriptor {
-    name: Ident,
+    _name: Ident,
     slot_size: Expr,
     align: Expr,
     num_slots: Expr,
@@ -97,7 +97,7 @@ impl TryFrom<&Field> for BucketDescriptor {
         }
 
         Ok(BucketDescriptor {
-            name: name.clone(),
+            _name: name.clone(),
             slot_size: slot_size
                 .ok_or(Error::new(generics.__span(), "SlotSlize was not specified"))?,
             num_slots: num_slots
@@ -115,7 +115,7 @@ impl TryFrom<&Field> for BucketDescriptor {
 // This function exists because sometimes the macro needs to emit `crate::bucket::BucketImpl` and sometimes just `silly_alloc::bucket::BucketImpl`. In the in-crate tests, `crate::`... is needed, but for the doc tests and any other external package, `silly_alloc::` is needed. To distinguish which to emit, we inspect the `CARGO_CRATE_NAME` env variable. If it’s "silly_alloc", someone is doing development on the crate itself and running the tests, so `crate::` is used. The only exception are the doc tests, where annoyingly `CARGO_CRATE_NAME` is set to "silly_alloc", but the doc tests are compiled like an external piece of code that is linked against the `silly_alloc` crate. For a lack of a better solution, an additional env variable `SILLY_ALLOC_DOC_TESTS` is checked to override that behavior.
 fn crate_path() -> Ident {
     fn crate_name_option() -> Option<Ident> {
-        if let Ok(val) = std::env::var("SILLY_ALLOC_DOC_TESTS") {
+        if std::env::var("SILLY_ALLOC_DOC_TESTS").is_ok() {
             return None;
         }
         let pkg_name = std::env::var("CARGO_CRATE_NAME").ok()?;
