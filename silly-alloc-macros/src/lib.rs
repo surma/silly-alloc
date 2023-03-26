@@ -28,9 +28,9 @@ impl Parse for BucketAllocatorDescriptor {
 
 struct BucketDescriptor {
     _name: Ident,
-    slot_size: Expr,
-    align: Expr,
-    num_slots: Expr,
+    slot_size: usize,
+    align: usize,
+    num_slots: usize,
 }
 
 impl TryFrom<&Field> for BucketDescriptor {
@@ -41,7 +41,7 @@ impl TryFrom<&Field> for BucketDescriptor {
             .as_ref()
             .ok_or(Error::new(field.__span(), "Struct field without a name."))?;
 
-        let Type::Path(path_type) = &field.ty else {return Err(Error::new(field.__span(), "Struct field’s type must have the simple type name 'Bucket'."))};
+        let Type::Path(path_type) = &field.ty else { return Err(Error::new(field.__span(), "Struct field’s type must have the simple type name 'Bucket'."))} ;
         if path_type.path.segments.len() != 1 {
             return Err(Error::new(
                 path_type.__span(),
@@ -56,12 +56,12 @@ impl TryFrom<&Field> for BucketDescriptor {
             ));
         }
 
-        let mut slot_size: Option<Expr> = None;
-        let mut num_slots: Option<Expr> = None;
-        let mut align: Option<Expr> = None;
-        let PathArguments::AngleBracketed(generics) = &path_seg.arguments else { return Err(Error::new(path_seg.__span(), "Bucket is missing generic arguments"))};
+        let mut slot_size: Option<usize> = None;
+        let mut num_slots: Option<usize> = None;
+        let mut align: Option<usize> = None;
+        let PathArguments::AngleBracketed(generics) = &path_seg.arguments else { return Err(Error::new(path_seg.__span(), "Bucket is missing generic arguments")) };
         for generic_arg in &generics.args {
-            let GenericArgument::Type(Type::Path(param_type))= generic_arg else {return Err(Error::new( generic_arg.__span(), "Bucket can only take type arguments."))};
+            let GenericArgument::Type(Type::Path(param_type)) = generic_arg  else { return Err(Error::new( generic_arg.__span(), "Bucket can only take type arguments."))  };
             if param_type.path.segments.len() != 1 {
                 return Err(Error::new(
                     param_type.__span(),
@@ -70,9 +70,7 @@ impl TryFrom<&Field> for BucketDescriptor {
             }
             let segment = param_type.path.segments.iter().nth(0).unwrap();
             let param_name = &segment.ident;
-            let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else {
-            return Err(Error::new(segment.__span(), "Bucket parameters are passed as generic arguments."))
-            };
+            let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else { return Err(Error::new(segment.__span(), "Bucket parameters are passed as generic arguments.")) };
             if param_generic_args.args.len() != 1 {
                 return Err(Error::new(
                     param_generic_args.__span(),
@@ -81,12 +79,13 @@ impl TryFrom<&Field> for BucketDescriptor {
             }
             let param_generic_arg = param_generic_args.args.iter().nth(0).unwrap();
             let GenericArgument::Const(expr) = param_generic_arg else {
-            return Err(Error::new(param_generic_arg.__span(), "Bucket parameters must be a const expr."))
+                return Err(Error::new(param_generic_arg.__span(), "Bucket parameters must be a const expr."))
             };
+
             match param_name.to_string().as_str() {
-                "SlotSize" => slot_size = Some(expr.clone()),
-                "NumSlots" => num_slots = Some(expr.clone()),
-                "Align" => align = Some(expr.clone()),
+                "SlotSize" => slot_size = Some(expr_to_usize(expr)?),
+                "NumSlots" => num_slots = Some(expr_to_usize(expr)?),
+                "Align" => align = Some(expr_to_usize(expr)?),
                 _ => {
                     return Err(Error::new(
                         name.__span(),
@@ -102,14 +101,16 @@ impl TryFrom<&Field> for BucketDescriptor {
                 .ok_or(Error::new(generics.__span(), "SlotSlize was not specified"))?,
             num_slots: num_slots
                 .ok_or(Error::new(generics.__span(), "NumSlots was not specified"))?,
-            align: align.unwrap_or_else(|| {
-                Expr::Lit(ExprLit {
-                    attrs: vec![],
-                    lit: Lit::Int(LitInt::new("1usize", generics.__span())),
-                })
-            }),
+            align: align.unwrap_or(1),
         })
     }
+}
+
+fn expr_to_usize(expr: &Expr) -> Result<usize> {
+    expr.try_to_int_literal()
+        .ok_or_else(|| Error::new(expr.__span(), "Bucket parameter must be an integer"))?
+        .parse::<usize>()
+        .map_err(|err| Error::new(expr.__span(), format!("{}", err)))
 }
 
 // This function exists because sometimes the macro needs to emit `crate::bucket::BucketImpl` and sometimes just `silly_alloc::bucket::BucketImpl`. In the in-crate tests, `crate::`... is needed, but for the doc tests and any other external package, `silly_alloc::` is needed. To distinguish which to emit, we inspect the `CARGO_CRATE_NAME` env variable. If it’s "silly_alloc", someone is doing development on the crate itself and running the tests, so `crate::` is used. The only exception are the doc tests, where annoyingly `CARGO_CRATE_NAME` is set to "silly_alloc", but the doc tests are compiled like an external piece of code that is linked against the `silly_alloc` crate. For a lack of a better solution, an additional env variable `SILLY_ALLOC_DOC_TESTS` is checked to override that behavior.
@@ -129,14 +130,7 @@ fn crate_path() -> Ident {
 
 impl BucketDescriptor {
     fn num_segments(&self) -> usize {
-        ((self
-            .num_slots
-            .try_to_int_literal()
-            .unwrap()
-            .parse::<usize>()
-            .unwrap() as f32)
-            / 32.0)
-            .ceil() as usize
+        ((self.num_slots as f32) / 32.0).ceil() as usize
     }
 
     fn as_init_values(&self) -> TokenStream {
@@ -152,10 +146,7 @@ impl BucketDescriptor {
             slot_size, align, ..
         } = self;
         let num_segments = self.num_segments();
-        let slot_type_ident = Ident::new(
-            &format!("SlotWithAlign{}", align.try_to_int_literal().unwrap()),
-            align.__span(),
-        );
+        let slot_type_ident = Ident::new(&format!("SlotWithAlign{}", align), align.__span());
         let crate_path = crate_path();
         quote! {
             ::core::cell::UnsafeCell<#crate_path::bucket::BucketImpl<#crate_path::bucket::#slot_type_ident<#slot_size>, #num_segments>>
@@ -167,22 +158,12 @@ impl BucketDescriptor {
         let BucketDescriptor {
             slot_size, align, ..
         } = self;
-        let size = slot_size
-            .try_to_int_literal()
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
-        let align = align
-            .try_to_int_literal()
-            .unwrap()
-            .parse::<usize>()
-            .unwrap();
         let idx_key = Index::from(idx);
         quote! {
             {
                 let bucket = self.#idx_key.get().as_mut().unwrap();
                 bucket.ensure_init();
-                if size <= #size && align <= #align {
+                if size <= #slot_size && align <= #align {
                     if let Some(ptr) = bucket.claim_first_available_slot() {
                         return ptr as *mut u8;
                     }
