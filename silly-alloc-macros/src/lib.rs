@@ -188,12 +188,53 @@ impl BucketDescriptor {
     }
 }
 
+struct BucketAllocatorOptions {
+    sort_buckets: bool,
+}
+
+impl Parse for BucketAllocatorOptions {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut result = Self::default();
+        while !input.is_empty() {
+            let opt_name = Ident::parse(input)?.to_string();
+            match opt_name.as_str() {
+                "sort_buckets" => {
+                    <Token![=]>::parse(input)?;
+                    result.sort_buckets = LitBool::parse(input)?.value;
+                }
+                _ => return Err(Error::new(input.span(), "Unsupported options")),
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl Default for BucketAllocatorOptions {
+    fn default() -> Self {
+        BucketAllocatorOptions {
+            sort_buckets: false,
+        }
+    }
+}
+
 #[proc_macro_attribute]
 pub fn bucket_allocator(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let BucketAllocatorDescriptor { name, buckets } = parse_macro_input!(input);
+    let BucketAllocatorOptions { sort_buckets } = parse_macro_input!(attr);
+    let BucketAllocatorDescriptor { name, mut buckets } = parse_macro_input!(input);
+
+    if sort_buckets {
+        buckets.sort_by(|a, b| {
+            let cmp = a.slot_size.cmp(&b.slot_size);
+            if cmp == std::cmp::Ordering::Equal {
+                a.align.cmp(&b.align)
+            } else {
+                cmp
+            }
+        });
+    }
 
     let bucket_field_decls: Vec<TokenStream> = buckets
         .iter()

@@ -438,9 +438,8 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn unsorted_buckets() -> Result<()> {
-        #[bucket_allocator]
+        #[bucket_allocator(sort_buckets = true)]
         struct MyBucketAllocator {
             vec8: Bucket<SlotSize<8>, NumSlots<32>, Align<8>>,
             vec2: Bucket<SlotSize<2>, NumSlots<32>, Align<8>>,
