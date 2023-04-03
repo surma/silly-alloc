@@ -51,8 +51,8 @@ impl TryFrom<&Field> for BucketDescriptor {
                 "Struct field’s type must have the simple type name 'Bucket'.",
             ));
         }
-        let path_seg = path_type.path.segments.iter().nth(0).unwrap();
-        if path_seg.ident.to_string() != "Bucket" {
+        let path_seg = path_type.path.segments.iter().next().unwrap();
+        if path_seg.ident != "Bucket" {
             return Err(Error::new(
                 path_seg.__span(),
                 "Struct field’s type must have the simple type name 'Bucket'.",
@@ -71,7 +71,7 @@ impl TryFrom<&Field> for BucketDescriptor {
                     "Invalid value for a Bucket property",
                 ));
             }
-            let segment = param_type.path.segments.iter().nth(0).unwrap();
+            let segment = param_type.path.segments.iter().next().unwrap();
             let param_name = &segment.ident;
             let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else { return Err(Error::new(segment.__span(), "Bucket parameters are passed as generic arguments.")) };
             if param_generic_args.args.len() != 1 {
@@ -80,7 +80,7 @@ impl TryFrom<&Field> for BucketDescriptor {
                     "Bucket parameters take exactly one generic argument.",
                 ));
             }
-            let param_generic_arg = param_generic_args.args.iter().nth(0).unwrap();
+            let param_generic_arg = param_generic_args.args.iter().next().unwrap();
             let GenericArgument::Const(expr) = param_generic_arg else {
                 return Err(Error::new(param_generic_arg.__span(), "Bucket parameters must be a const expr."))
             };
@@ -92,7 +92,7 @@ impl TryFrom<&Field> for BucketDescriptor {
                 _ => {
                     return Err(Error::new(
                         name.__span(),
-                        format!("Unknown bucket parameter: {}", param_name.to_string()),
+                        format!("Unknown bucket parameter: {}", param_name),
                     ))
                 }
             };
@@ -141,7 +141,6 @@ impl BucketDescriptor {
         quote! {
             ::core::cell::UnsafeCell::new(#crate_path::bucket::BucketImpl::new())
         }
-        .into()
     }
 
     fn as_struct_fields(&self) -> TokenStream {
@@ -154,7 +153,6 @@ impl BucketDescriptor {
         quote! {
             ::core::cell::UnsafeCell<#crate_path::bucket::BucketImpl<#crate_path::bucket::#slot_type_ident<#slot_size>, #num_segments>>
         }
-        .into()
     }
 
     fn as_alloc_bucket_selectors(&self, idx: usize) -> TokenStream {
@@ -173,7 +171,6 @@ impl BucketDescriptor {
                 }
             }
         }
-        .into()
     }
 
     fn as_dealloc_bucket_selectors(&self, idx: usize) -> TokenStream {
@@ -187,10 +184,10 @@ impl BucketDescriptor {
                 }
             }
         }
-        .into()
     }
 }
 
+#[derive(Default)]
 struct BucketAllocatorOptions {
     sort_buckets: bool,
 }
@@ -212,13 +209,7 @@ impl Parse for BucketAllocatorOptions {
     }
 }
 
-impl Default for BucketAllocatorOptions {
-    fn default() -> Self {
-        BucketAllocatorOptions {
-            sort_buckets: false,
-        }
-    }
-}
+
 
 /// Macro to turn a struct into an allocator.
 ///

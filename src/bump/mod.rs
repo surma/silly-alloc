@@ -55,6 +55,8 @@ pub trait BumpAllocatorArena {
     /// Ensures that the arena is at least `min_size` bytes big, or returns an error if that is not possible.
     fn ensure_min_size(&self, min_size: usize) -> BumpAllocatorArenaResult<usize>;
     /// Returns the number of bytes `ptr` is pointing past the end of the arena. Returns `None` if `ptr` is not pointing past the end.
+    // No pointer is being dereferenced here, just some math is done on the addresses. But Clippy is kicking off.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn past_end(&self, ptr: *const u8) -> Option<usize> {
         // FIXME: This is probably not the best way to handle big memory sizes that overflow isize. Currently this panics whenever we can’t convert an `isize` to an `usize`.
         let v = unsafe {
@@ -137,6 +139,10 @@ impl<'a, M: BumpAllocatorArena, H: Head + Default> BumpAllocator<'a, M, H> {
         }
     }
 
+    /// Resets the arena to its initial state of being completely unused.
+    ///
+    /// # Safety
+    /// It’s the callers responsibility to ensure that there are no live values from the arena. Any leaked values will not have their `Drop` function called.
     pub unsafe fn reset(&self) {
         if let Some(head) = self.try_as_head_mut() {
             head.set(self.memory.start() as usize);
@@ -192,13 +198,12 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
                 .unwrap(),
         );
         if let Some(needed_bytes) = self.memory.past_end(last_byte_of_new_allocation) {
-            match self
+            if self
                 .memory
-                .ensure_min_size(self.memory.size() + needed_bytes)
+                .ensure_min_size(self.memory.size() + needed_bytes).is_err()
             {
-                Err(_) => return null_mut(),
-                _ => {}
-            };
+                return null_mut();
+            }
         }
 
         head.bump(offset + size);
@@ -211,7 +216,7 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::vec::Vec;
+    
     use xorshift;
 
     #[test]
@@ -270,8 +275,7 @@ mod tests {
         let mut rng = xorshift::Xoroshiro128::from_seed(&[1u64, 2, 3, 4]);
 
         for _attempts in 1..100 {
-            let mut arena = Vec::with_capacity(SIZE);
-            arena.resize(SIZE, 0);
+            let arena = vec![0; SIZE];
             let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             let mut last_ptr: Option<usize> = None;
             for _allocation in 1..10 {
@@ -282,7 +286,7 @@ mod tests {
                 if let Some(last_ptr) = last_ptr {
                     assert!(ptr > last_ptr, "Pointer didn’t bump")
                 }
-                drop(last_ptr.insert(ptr));
+                last_ptr = Some(ptr);
                 assert_eq!(ptr % alignment, 0);
             }
         }

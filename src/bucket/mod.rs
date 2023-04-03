@@ -101,7 +101,7 @@ impl Debug for SegmentHeader {
             f.write_str("_")?;
             f.write_fmt(format_args!("{:08b}", (header >> 8) & 0xff))?;
             f.write_str("_")?;
-            f.write_fmt(format_args!("{:08b}", (header >> 0) & 0xff))?;
+            f.write_fmt(format_args!("{:08b}", header & 0xff))?;
         }
         f.write_str("}")?;
         Ok(())
@@ -264,6 +264,8 @@ impl<S: Slot, const NUM_SEGMENTS: usize> BucketImpl<S, NUM_SEGMENTS> {
         self.get_segments_mut()[seg_idx].header.unset_slot(slot_idx);
     }
 
+    // No pointer is being dereferenced, only math is done on the addresses. But Clippy is kicking off.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn slot_idx_for_ptr(&self, ptr: *const u8) -> Option<usize> {
         let seg_stride = size_of::<Segment<S>>();
         let slot_stride = size_of::<S>();
@@ -351,13 +353,13 @@ mod test {
         let b = MyBucketAllocator::new();
         unsafe {
             let layout = Layout::from_size_align(2, 1)?;
-            let ptr1 = b.alloc(layout.clone());
-            let ptr2 = b.alloc(layout.clone());
-            let ptr3 = b.alloc(layout.clone());
+            let ptr1 = b.alloc(layout);
+            let ptr2 = b.alloc(layout);
+            let ptr3 = b.alloc(layout);
             assert_eq!(ptr1.offset(2), ptr2);
             assert_eq!(ptr2.offset(2), ptr3);
             b.dealloc(ptr2, layout);
-            let ptr4 = b.alloc(layout.clone());
+            let ptr4 = b.alloc(layout);
             assert_eq!(ptr2, ptr4);
         }
         Ok(())
@@ -370,10 +372,10 @@ mod test {
             let layout = Layout::from_size_align(2, 1)?;
             // Fill 2 byte bucket
             for _ in 0..32 {
-                b.alloc(layout.clone());
+                b.alloc(layout);
             }
             let ptr1 = b.alloc(Layout::from_size_align(4, 1)?);
-            let ptr2 = b.alloc(layout.clone());
+            let ptr2 = b.alloc(layout);
             assert_eq!(ptr1.offset(4), ptr2);
         }
         Ok(())
@@ -412,11 +414,11 @@ mod test {
             ];
             for layout in layouts {
                 let b = MyBucketAllocator::new();
-                let _ptr1 = b.alloc(layout.clone());
-                let ptr2 = b.alloc(layout.clone());
-                let _ptr3 = b.alloc(layout.clone());
+                let _ptr1 = b.alloc(layout);
+                let ptr2 = b.alloc(layout);
+                let _ptr3 = b.alloc(layout);
                 b.dealloc(ptr2, layout);
-                let ptr4 = b.alloc(layout.clone());
+                let ptr4 = b.alloc(layout);
                 assert_eq!(ptr2, ptr4);
             }
         }
