@@ -1,3 +1,7 @@
+/*!
+Heads track where the first free byte in an arena is.
+*/
+
 use core::{
     cell::UnsafeCell,
     sync::atomic::{AtomicUsize, Ordering},

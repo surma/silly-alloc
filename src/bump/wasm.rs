@@ -1,3 +1,7 @@
+/*!
+Bump allocators specifically for WebAssembly.
+*/
+
 use core::{cell::UnsafeCell, marker::PhantomData};
 
 pub use crate::bump::{
@@ -10,10 +14,9 @@ extern "C" {
     static __heap_base: u8;
 }
 
-/// A [`BumpAllocatorArena`] implementation that works on the entire WebAssembly memory. The generic `N` determines which memory to use, making this allocator ready for the [multi-memory proposal].
+/// A [`BumpAllocatorArena`] implementation that works on the entire WebAssembly memory. The generic `N` determines which memory to use, making this allocator ready for the [multi-memory proposal](https://github.com/WebAssembly/multi-memory).
 ///
 /// The `WasmMemoryArena` uses the LLVM `__heap_base` symbol that is provided by the linker as the starting value for the head.
-/// [multi-memory proposal]: https://lol.com
 pub struct WasmMemoryArena<const N: u32 = 0>();
 
 impl<const N: u32> WasmMemoryArena<N> {

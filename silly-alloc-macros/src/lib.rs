@@ -1,3 +1,6 @@
+/*!
+`silly_alloc_macros` is a macro support crate for the `silly_alloc` crate. Please see the documentation there.
+*/
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, spanned::Spanned};
 use syn::{
@@ -217,12 +220,18 @@ impl Default for BucketAllocatorOptions {
     }
 }
 
+/// Macro to turn a struct into an allocator.
+///
+/// `bucket_allocator` is an attribute macro that builds a `GlobalAlloc`-compatible data type from a given struct. Please see the module-level documentation for details and examples.
+///
+/// The macro supports the following options:
+/// - `sort_buckets = <true|false>`: Sort buckets by item size, then alignment
 #[proc_macro_attribute]
 pub fn bucket_allocator(
     attr: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let BucketAllocatorOptions { sort_buckets } = parse_macro_input!(attr);
+    let BucketAllocatorOptions { sort_buckets, .. } = parse_macro_input!(attr);
     let BucketAllocatorDescriptor { name, mut buckets } = parse_macro_input!(input);
 
     if sort_buckets {

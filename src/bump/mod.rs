@@ -8,7 +8,7 @@ Bump allocators work on a linear chunk of memory and only store a pointer where 
 
 ## Using an array or slice as heap
 
-```rust,no_run
+```rust
 use silly_alloc::SliceBumpAllocator;
 
 const ARENA_SIZE: usize = 64 * 1024 * 1024;
@@ -20,13 +20,11 @@ static ALLOCATOR: SliceBumpAllocator = SliceBumpAllocator::with_slice(arena.as_s
 
 ## Using the entire WebAssembly Memory as heap
 
-```rust,ignore
-# FIXME: This should somehow target wasm32-unknown-unknown
-#![doc(test(attr(targetxxx="wasm32-unknown-unknown")))]
-se silly_alloc::WasmBumpAllocator;
+```rust
+use silly_alloc::WasmBumpAllocator;
 
 #[global_allocator]
-static ALLOCATOR: WasmBumpAllocator = WasmBumpAllocator::singlethreaded();
+static ALLOCATOR: WasmBumpAllocator = WasmBumpAllocator::with_memory();
 ```
 
 Note that `WasmBumpAllocator` respects the heap start address that is provided by the linker, making sure `static`s and other data doesn’t get corrupted by runtime allocations.
@@ -48,6 +46,7 @@ pub mod wasm;
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{ThreadsafeWasmBumpAllocator, WasmBumpAllocator};
 
+/// Trait to model a consecutive chunk of linear memory for bump allocators.
 pub trait BumpAllocatorArena {
     /// Returns the first pointer in the arena.
     fn start(&self) -> *const u8;
@@ -93,7 +92,9 @@ impl BumpAllocatorArena for &[u8] {
     }
 }
 
-/// A bump allocator working on memory `M`, tracking where the remaining
+/// A generic bump allocator.
+///
+/// The bump allocator works on memory `M`, tracking where the remaining
 /// free memory starts using head `H`.
 pub struct BumpAllocator<'a, M: BumpAllocatorArena = &'a [u8], H: Head = SingleThreadedHead> {
     head: UnsafeCell<H>,
@@ -101,7 +102,7 @@ pub struct BumpAllocator<'a, M: BumpAllocatorArena = &'a [u8], H: Head = SingleT
     lifetime: PhantomData<&'a u8>,
 }
 
-/// A `BumpAllocator` that uses the given slice as the arena.
+/// A `BumpAllocator` that uses the given byte slice as the arena.
 pub type SliceBumpAllocator<'a> = BumpAllocator<'a, &'a [u8], SingleThreadedHead>;
 
 impl<'a> SliceBumpAllocator<'a> {

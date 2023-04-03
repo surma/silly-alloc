@@ -43,8 +43,9 @@ A bucket is defined by three parameters:
 - The number of items that fit in the bucket
 - An optional alignment constraint
 
-The speed of bucket allocators stems from the fact that all items in the bucket are the same size, and as such a simple bit mask is enough to track if a “slot” is in use or not. For simplicity, 32 slots a grouped into one segment, where a single `u32` is used to track which slot has already been allocated. A bucket, as a consequence, is a series of segments. This also implies that the size of the bucket will be rounded up to the next multiple of 32.
+The speed of bucket allocators stems from the fact that all items in the bucket are the same size, and as such a simple bit mask is enough to track if a slot is in use or not. For simplicity, 32 slots are grouped into one segment, where a single `u32` is used to hold that bitmask. A bucket, as a consequence, is an array of segments. This also implies that `NumSlots<N>` will be rounded up to the next multiple of 32.
 */
+
 use core::{
     fmt::{Debug, Formatter},
     marker::PhantomData,

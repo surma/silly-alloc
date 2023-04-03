@@ -2,9 +2,16 @@
 name = "silly-alloc-macros"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+description = "Macro support crate for silly_alloc."
+repository = "https://github.com/surma/silly-alloc"
+license = "Apache-2.0"
+authors = ["Surma <surma@surma.dev>"]
 
 [lib]
 proc-macro = true
+# This seems to be necessary to make `cargo readme` work in a subcrate.
+path = "src/lib.rs"
 
 [dependencies]
 proc-macro2 = "1.0.52"
