@@ -1,0 +1,35 @@
+name: Cargo Build & Test
+
+on:
+  push:
+  pull_request:
+
+env: 
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Rust project - latest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+          target: wasm32-wasi
+          override: true
+      - name: Clippy
+        run: cargo clippy --verbose
+      - name: Wasmtime
+        run: cargo install wasmtime-cli
+      - name: Build
+        run: cargo build --target=wasm32-wasi --verbose 
+      - name: Test
+        run: cargo test --target=wasm32-wasi --verbose 
