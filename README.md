@@ -32,7 +32,4 @@ To run the doc tests, Nightly Rust is required (as cross-compiling doc tests is 
 $ SILLY_ALLOC_DOC_TESTS=1 cargo +nightly test --doc --target wasm32-wasi -Zdoctest-xcompile
 ```
 
----
-License Apache 2.
-
 License: Apache-2.0
