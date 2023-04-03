@@ -10,7 +10,7 @@ authors = ["Surma <surma@surma.dev>"]
 
 [dependencies]
 bytemuck = "1.13.1"
-silly-alloc-macros = { path = "./silly-alloc-macros" }
+silly-alloc-macros = { version = "0.1.0", path = "./silly-alloc-macros" }
 
 [dev-dependencies]
 anyhow = "1.0.69"
