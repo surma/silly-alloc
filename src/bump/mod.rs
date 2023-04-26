@@ -101,6 +101,7 @@ impl BumpAllocatorArena for &[u8] {
 pub struct BumpAllocator<'a, M: BumpAllocatorArena = &'a [u8], H: Head = SingleThreadedHead> {
     head: UnsafeCell<H>,
     memory: M,
+    last_allocation: UnsafeCell<Option<usize>>,
     lifetime: PhantomData<&'a u8>,
 }
 
@@ -112,6 +113,7 @@ impl<'a> SliceBumpAllocator<'a> {
         BumpAllocator {
             memory: arena,
             head: UnsafeCell::new(SingleThreadedHead::new()),
+            last_allocation: UnsafeCell::new(None),
             lifetime: PhantomData,
         }
     }
@@ -125,6 +127,7 @@ impl<'a> ThreadsafeSliceBumpAllocator<'a> {
         BumpAllocator {
             memory: arena,
             head: UnsafeCell::new(ThreadSafeHead::new()),
+            last_allocation: UnsafeCell::new(None),
             lifetime: PhantomData,
         }
     }
@@ -135,6 +138,7 @@ impl<'a, M: BumpAllocatorArena, H: Head + Default> BumpAllocator<'a, M, H> {
         BumpAllocator {
             memory,
             head: UnsafeCell::new(head),
+            last_allocation: UnsafeCell::new(None),
             lifetime: PhantomData,
         }
     }
@@ -200,23 +204,52 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
         if let Some(needed_bytes) = self.memory.past_end(last_byte_of_new_allocation) {
             if self
                 .memory
-                .ensure_min_size(self.memory.size() + needed_bytes).is_err()
+                .ensure_min_size(self.memory.size() + needed_bytes)
+                .is_err()
             {
                 return null_mut();
             }
         }
 
         head.bump(offset + size);
-        ptr.offset(offset.try_into().unwrap()) as *mut u8
+        let ptr = ptr.offset(offset.try_into().unwrap()) as *mut u8;
+        let last_allocation = self.last_allocation.get().as_mut().unwrap();
+        *last_allocation = Some(ptr as usize);
+        ptr
     }
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let last_allocation = self.last_allocation.get().as_mut().unwrap();
+        if *last_allocation != Some(ptr as usize) {
+            return DefaultReallocUser(self).realloc(ptr, layout, new_size);
+        }
+
+        let head = self.head.get().as_mut().unwrap();
+        let old_size = head.num_bytes_used() - (ptr.offset_from(self.memory.start()) as usize);
+        let size_delta = new_size - old_size;
+        head.bump(size_delta);
+        ptr
+    }
+}
+
+struct DefaultReallocUser<'a, T: GlobalAlloc + ?Sized>(&'a T);
+
+unsafe impl<'a, T: GlobalAlloc + ?Sized> GlobalAlloc for DefaultReallocUser<'a, T> {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        self.0.alloc(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        self.0.dealloc(ptr, layout)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use xorshift;
 
     #[test]
@@ -273,7 +306,7 @@ mod tests {
         {
             let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
             unsafe {
-                let layout =  Layout::from_size_align(1, 1).unwrap();
+                let layout = Layout::from_size_align(1, 1).unwrap();
                 let ptr1 = allocator.alloc(layout.clone()) as usize;
                 let ptr2 = allocator.realloc(ptr1 as *mut u8, layout.clone(), 2) as usize;
                 assert_eq!(ptr1, ptr2);

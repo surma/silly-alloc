@@ -209,8 +209,6 @@ impl Parse for BucketAllocatorOptions {
     }
 }
 
-
-
 /// Macro to turn a struct into an allocator.
 ///
 /// `bucket_allocator` is an attribute macro that builds a `GlobalAlloc`-compatible data type from a given struct. Please see the module-level documentation for details and examples.

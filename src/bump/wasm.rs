@@ -64,6 +64,7 @@ impl WasmBumpAllocator {
         BumpAllocator {
             memory: WasmMemoryArena::new(),
             head: UnsafeCell::new(SingleThreadedHead::new()),
+            last_allocation: UnsafeCell::new(None),
             lifetime: PhantomData,
         }
     }
@@ -77,6 +78,7 @@ impl ThreadsafeWasmBumpAllocator {
         BumpAllocator {
             memory: WasmMemoryArena::new(),
             head: UnsafeCell::new(ThreadSafeHead::new()),
+            last_allocation: UnsafeCell::new(None),
             lifetime: PhantomData,
         }
     }
