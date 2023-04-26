@@ -268,6 +268,23 @@ mod tests {
     }
 
     #[test]
+    fn grow() {
+        let arena = [0u8; 16];
+        {
+            let allocator = SliceBumpAllocator::with_slice(arena.as_slice());
+            unsafe {
+                let layout =  Layout::from_size_align(1, 1).unwrap();
+                let ptr1 = allocator.alloc(layout.clone()) as usize;
+                let ptr2 = allocator.realloc(ptr1 as *mut u8, layout.clone(), 2) as usize;
+                assert_eq!(ptr1, ptr2);
+                let ptr3 = allocator.alloc(layout.clone());
+                let ptr4 = allocator.realloc(ptr2 as *mut u8, layout.clone(), 4) as usize;
+                assert_ne!(ptr2, ptr4);
+            }
+        }
+    }
+
+    #[test]
     fn minifuzz() {
         const SIZE: usize = 1024 * 1024;
 
