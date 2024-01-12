@@ -12,15 +12,15 @@ Bump allocators work on a linear chunk of memory and only store a pointer where 
 use silly_alloc::SliceBumpAllocator;
 
 const ARENA_SIZE: usize = 64 * 1024 * 1024;
-static arena: [u8; ARENA_SIZE] = [0u8; ARENA_SIZE];
+static mut arena: [u8; ARENA_SIZE] = [0u8; ARENA_SIZE];
 
 #[global_allocator]
-static ALLOCATOR: SliceBumpAllocator = SliceBumpAllocator::with_slice(arena.as_slice());
+static ALLOCATOR: SliceBumpAllocator = SliceBumpAllocator::with_slice(unsafe {arena.as_slice()});
 ```
 
 ## Using the entire WebAssembly Memory as heap
 
-```rust
+```ignore
 use silly_alloc::WasmBumpAllocator;
 
 #[global_allocator]
