@@ -8,6 +8,10 @@ repository = "https://github.com/surma/silly-alloc"
 license = "Apache-2.0"
 authors = ["Surma <surma@surma.dev>"]
 
+[features]
+default = ["atomics"]
+atomics = []
+
 [dependencies]
 bytemuck = "1.13.1"
 silly-alloc-macros = { version = "0.1.0", path = "./silly-alloc-macros" }

@@ -5,7 +5,7 @@ Bump allocators specifically for WebAssembly.
 use core::{cell::UnsafeCell, marker::PhantomData};
 
 pub use crate::bump::{
-    head::{Head, SingleThreadedHead, ThreadSafeHead},
+    head::{Head, SingleThreadedHead},
     BumpAllocator, BumpAllocatorArena, BumpAllocatorArenaError, BumpAllocatorArenaResult,
 };
 
@@ -69,15 +69,30 @@ impl WasmBumpAllocator {
     }
 }
 
-/// A `BumpAllocator` that uses the entire Wasm memory as the arena and can be used for multithreaded WebAssembly modules.
-pub type ThreadsafeWasmBumpAllocator = BumpAllocator<'static, WasmMemoryArena<0>, ThreadSafeHead>;
+#[cfg(feature = "atomics")]
+mod atomics {
+    use super::*;
+    use crate::bump::head::ThreadSafeHead;
+    use core::{
+        alloc::{GlobalAlloc, Layout},
+        cell::UnsafeCell,
+        fmt::Debug,
+        marker::PhantomData,
+        ptr::null_mut,
+    };
+    /// A `BumpAllocator` that uses the entire Wasm memory as the arena and can be used for multithreaded WebAssembly modules.
+    pub type ThreadsafeWasmBumpAllocator =
+        BumpAllocator<'static, WasmMemoryArena<0>, ThreadSafeHead>;
 
-impl ThreadsafeWasmBumpAllocator {
-    pub const fn with_memory() -> ThreadsafeWasmBumpAllocator {
-        BumpAllocator {
-            memory: WasmMemoryArena::new(),
-            head: UnsafeCell::new(ThreadSafeHead::new()),
-            lifetime: PhantomData,
+    impl ThreadsafeWasmBumpAllocator {
+        pub const fn with_memory() -> ThreadsafeWasmBumpAllocator {
+            BumpAllocator {
+                memory: WasmMemoryArena::new(),
+                head: UnsafeCell::new(ThreadSafeHead::new()),
+                lifetime: PhantomData,
+            }
         }
     }
 }
+#[cfg(feature = "atomics")]
+pub use atomics::*;
