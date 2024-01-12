@@ -44,7 +44,12 @@ impl TryFrom<&Field> for BucketDescriptor {
             .as_ref()
             .ok_or(Error::new(field.__span(), "Struct field without a name."))?;
 
-        let Type::Path(path_type) = &field.ty else { return Err(Error::new(field.__span(), "Struct field’s type must have the simple type name 'Bucket'."))} ;
+        let Type::Path(path_type) = &field.ty else {
+            return Err(Error::new(
+                field.__span(),
+                "Struct field’s type must have the simple type name 'Bucket'.",
+            ));
+        };
         if path_type.path.segments.len() != 1 {
             return Err(Error::new(
                 path_type.__span(),
@@ -62,9 +67,19 @@ impl TryFrom<&Field> for BucketDescriptor {
         let mut slot_size: Option<usize> = None;
         let mut num_slots: Option<usize> = None;
         let mut align: Option<usize> = None;
-        let PathArguments::AngleBracketed(generics) = &path_seg.arguments else { return Err(Error::new(path_seg.__span(), "Bucket is missing generic arguments")) };
+        let PathArguments::AngleBracketed(generics) = &path_seg.arguments else {
+            return Err(Error::new(
+                path_seg.__span(),
+                "Bucket is missing generic arguments",
+            ));
+        };
         for generic_arg in &generics.args {
-            let GenericArgument::Type(Type::Path(param_type)) = generic_arg  else { return Err(Error::new( generic_arg.__span(), "Bucket can only take type arguments."))  };
+            let GenericArgument::Type(Type::Path(param_type)) = generic_arg else {
+                return Err(Error::new(
+                    generic_arg.__span(),
+                    "Bucket can only take type arguments.",
+                ));
+            };
             if param_type.path.segments.len() != 1 {
                 return Err(Error::new(
                     param_type.__span(),
@@ -73,7 +88,12 @@ impl TryFrom<&Field> for BucketDescriptor {
             }
             let segment = param_type.path.segments.iter().next().unwrap();
             let param_name = &segment.ident;
-            let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else { return Err(Error::new(segment.__span(), "Bucket parameters are passed as generic arguments.")) };
+            let PathArguments::AngleBracketed(param_generic_args) = &segment.arguments else {
+                return Err(Error::new(
+                    segment.__span(),
+                    "Bucket parameters are passed as generic arguments.",
+                ));
+            };
             if param_generic_args.args.len() != 1 {
                 return Err(Error::new(
                     param_generic_args.__span(),
@@ -82,7 +102,10 @@ impl TryFrom<&Field> for BucketDescriptor {
             }
             let param_generic_arg = param_generic_args.args.iter().next().unwrap();
             let GenericArgument::Const(expr) = param_generic_arg else {
-                return Err(Error::new(param_generic_arg.__span(), "Bucket parameters must be a const expr."))
+                return Err(Error::new(
+                    param_generic_arg.__span(),
+                    "Bucket parameters must be a const expr.",
+                ));
             };
 
             match param_name.to_string().as_str() {
@@ -208,8 +231,6 @@ impl Parse for BucketAllocatorOptions {
         Ok(result)
     }
 }
-
-
 
 /// Macro to turn a struct into an allocator.
 ///

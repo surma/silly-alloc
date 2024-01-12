@@ -1,17 +1,17 @@
 #![no_std]
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", feature = "atomics"))]
 mod wasmtest {
-    use silly_alloc::WasmBumpAllocator;
+    use silly_alloc::bump::ThreadsafeWasmBumpAllocator;
 
     extern crate alloc;
     use alloc::vec::Vec;
 
     #[global_allocator]
-    static ALLOCATOR: WasmBumpAllocator = WasmBumpAllocator::with_memory();
+    static ALLOCATOR: ThreadsafeWasmBumpAllocator = ThreadsafeWasmBumpAllocator::with_memory();
 
     #[test]
-    fn test_page_growth() {
+    fn test_page_growth_threaded() {
         let num_pages_start = core::arch::wasm32::memory_size::<0>();
         let size = ALLOCATOR.arena().size();
         let _v: Vec<u8> = Vec::with_capacity(size);

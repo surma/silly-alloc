@@ -236,7 +236,9 @@ impl<S: Slot, const NUM_SEGMENTS: usize> BucketImpl<S, NUM_SEGMENTS> {
 
     pub fn claim_first_available_slot(&mut self) -> Option<*const u8> {
         for seg in self.get_segments_mut().iter_mut() {
-            let Some(slot_idx) = seg.header.first_free_slot_idx() else {continue};
+            let Some(slot_idx) = seg.header.first_free_slot_idx() else {
+                continue;
+            };
             seg.header.set_slot(slot_idx);
             return Some(seg.get_slot(slot_idx));
         }

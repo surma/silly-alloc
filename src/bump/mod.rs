@@ -39,12 +39,16 @@ use core::{
 };
 
 pub mod head;
-pub use head::{Head, SingleThreadedHead, ThreadSafeHead};
+#[cfg(feature = "atomics")]
+pub use head::ThreadSafeHead;
+pub use head::{Head, SingleThreadedHead};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub mod wasm;
-#[cfg(target_arch = "wasm32")]
-pub use wasm::{ThreadsafeWasmBumpAllocator, WasmBumpAllocator};
+#[cfg(all(target_family = "wasm", feature = "atomics"))]
+pub use wasm::ThreadsafeWasmBumpAllocator;
+#[cfg(target_family = "wasm")]
+pub use wasm::WasmBumpAllocator;
 
 /// Trait to model a consecutive chunk of linear memory for bump allocators.
 pub trait BumpAllocatorArena {
@@ -117,18 +121,26 @@ impl<'a> SliceBumpAllocator<'a> {
     }
 }
 
-/// A `BumpAllocator` that uses the given slice as the arena.
-pub type ThreadsafeSliceBumpAllocator<'a> = BumpAllocator<'a, &'a [u8], ThreadSafeHead>;
+#[cfg(feature = "atomics")]
+mod atomics {
+    use core::{cell::UnsafeCell, marker::PhantomData};
 
-impl<'a> ThreadsafeSliceBumpAllocator<'a> {
-    pub const fn with_slice(arena: &'a [u8]) -> ThreadsafeSliceBumpAllocator<'a> {
-        BumpAllocator {
-            memory: arena,
-            head: UnsafeCell::new(ThreadSafeHead::new()),
-            lifetime: PhantomData,
+    use super::{BumpAllocator, ThreadSafeHead};
+    /// A `BumpAllocator` that uses the given slice as the arena.
+    pub type ThreadsafeSliceBumpAllocator<'a> = BumpAllocator<'a, &'a [u8], ThreadSafeHead>;
+
+    impl<'a> ThreadsafeSliceBumpAllocator<'a> {
+        pub const fn with_slice(arena: &'a [u8]) -> ThreadsafeSliceBumpAllocator<'a> {
+            BumpAllocator {
+                memory: arena,
+                head: UnsafeCell::new(ThreadSafeHead::new()),
+                lifetime: PhantomData,
+            }
         }
     }
 }
+#[cfg(feature = "atomics")]
+pub use atomics::*;
 
 impl<'a, M: BumpAllocatorArena, H: Head + Default> BumpAllocator<'a, M, H> {
     pub const fn new(memory: M, head: H) -> Self {
@@ -200,7 +212,8 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
         if let Some(needed_bytes) = self.memory.past_end(last_byte_of_new_allocation) {
             if self
                 .memory
-                .ensure_min_size(self.memory.size() + needed_bytes).is_err()
+                .ensure_min_size(self.memory.size() + needed_bytes)
+                .is_err()
             {
                 return null_mut();
             }
@@ -216,7 +229,7 @@ unsafe impl<'a, M: BumpAllocatorArena, H: Head + Default> GlobalAlloc for BumpAl
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use xorshift;
 
     #[test]
