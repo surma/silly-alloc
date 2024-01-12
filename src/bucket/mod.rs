@@ -52,7 +52,7 @@ use core::{
     mem::{size_of, MaybeUninit},
 };
 
-use bytemuck::Zeroable;
+pub use bytemuck::Zeroable;
 
 // TODO: Implement thread-safe segments
 // #[cfg(target_feature = "feature")]

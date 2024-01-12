@@ -246,6 +246,8 @@ pub fn bucket_allocator(
     let BucketAllocatorOptions { sort_buckets, .. } = parse_macro_input!(attr);
     let BucketAllocatorDescriptor { name, mut buckets } = parse_macro_input!(input);
 
+    let crate_path = crate_path();
+
     if sort_buckets {
         buckets.sort_by(|a, b| {
             let cmp = a.slot_size.cmp(&b.slot_size);
@@ -295,7 +297,7 @@ pub fn bucket_allocator(
 
             unsafe impl ::core::marker::Sync for #name {}
 
-            unsafe impl ::bytemuck::Zeroable for #name {}
+            unsafe impl #crate_path::bucket::Zeroable for #name {}
 
             unsafe impl ::core::alloc::GlobalAlloc for #name {
                 unsafe fn alloc(&self, layout: ::core::alloc::Layout) -> *mut u8 {
